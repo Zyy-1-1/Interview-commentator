@@ -1,8 +1,9 @@
 """Pydantic 请求/响应模型。"""
+import json
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 # ---------- Job ----------
@@ -48,6 +49,17 @@ class MessageOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("assess", mode="before")
+    @classmethod
+    def _parse_assess(cls, v: Any) -> Any:
+        # DB 里 assess 存的是 JSON 字符串,响应时解析为 dict
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return v
+
 
 class InterviewOut(BaseModel):
     id: int
@@ -69,3 +81,14 @@ class InterviewTurn(BaseModel):
     assess: Optional[dict] = None
     progress: dict[str, Any] = {}  # 当前维度进度/剩余维度,供前端展示
     finished: bool = False
+
+
+class InterviewMessage(BaseModel):
+    """候选人提交回答(reply 为空表示开场,生成开场白)。"""
+    reply: Optional[str] = None
+
+
+class InterviewStateOut(BaseModel):
+    """会话状态(进度),供前端轮询/展示。"""
+    status: str
+    progress: dict[str, Any]

@@ -15,6 +15,8 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from ...llm import chat_json
+
 from .prompts import build_system_prompt, build_user_prompt
 from .state import (
     ACTION_CLOSING,
@@ -208,6 +210,16 @@ def build_graph(judge: Judge) -> Any:
     )
     graph.add_edge("closing", END)
     return graph.compile()
+
+
+def llm_judge(system: str, user: str) -> dict[str, Any]:
+    """生产环境默认判断器:走 DeepSeek(OpenAI 兼容,强制 JSON 输出)。"""
+    return chat_json(system, user, temperature=0.4)
+
+
+def build_llm_graph() -> Any:
+    """编译一个接真实 LLM 的状态机实例(API 层使用)。"""
+    return build_graph(llm_judge)
 
 
 def compute_progress(state: InterviewState) -> dict[str, Any]:

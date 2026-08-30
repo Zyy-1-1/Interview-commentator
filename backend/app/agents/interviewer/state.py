@@ -58,6 +58,7 @@ class InterviewState(TypedDict, total=False):
     # ---------- 输出(本轮结果,由状态机写出) ----------
     last_output: NotRequired[dict[str, Any]]       # LLM 完整协议 {thinking, assess, next_question, action}
     action: NotRequired[str]                       # 服务端校验后的 action
+    assess: NotRequired[dict[str, Any]]            # 本轮质量判断(归一化后),供消息留痕/评估
     finished: NotRequired[bool]                    # 本轮是否收尾
     closing_message: NotRequired[str]              # 收尾语
 
