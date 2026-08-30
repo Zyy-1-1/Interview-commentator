@@ -109,32 +109,34 @@ Interview-commentator/
 - **D(可兼职)**:部署 + 演示数据 + 答辩材料
 
 ### W1 — 数据层 + 简历解析 + JD 分析
-- [ ] 4 张表 + SQLite 初始化
-- [ ] `resume_parser`:markitdown 转文本 → LLM 抽结构化 JSON(方案 4.1 schema)
-- [ ] `jd_analyzer`:LLM 输出维度清单(方案 4.2 schema)
-- ✅ **验收**:上传 10 份样例简历全部结构化;JD → 维度清单
+- [x] 4 张表 + SQLite 初始化
+- [x] `resume_parser`:markitdown 转文本 → LLM 抽结构化 JSON(方案 4.1 schema)
+- [x] `jd_analyzer`:LLM 输出维度清单(方案 4.2 schema)
+- ⏳ **验收**:真实 LLM 验收待网络恢复(本地代理 127.0.0.1:7897 未连通)
 
 ### W2 — 面试状态机 v1(★技术心脏)
-- [ ] `state.py`(方案 5.2)+ `graph.py`(方案 5.3 状态转换)
-- [ ] 单维度问答闭环:提问 → 判断质量 → 追问/推进
-- [ ] LLM 输出协议(方案 5.5:`{thinking, assess, next_question, action}`)
-- [ ] **服务端兜底校验**:action 枚举合法 + 轮次上限(max_q_per_dim=3, max_total_q=15)
-- ✅ **验收**:候选人能答,面试官能基于回答出下一问;状态机冒烟测试通过
+- [x] `state.py`(方案 5.2)+ `graph.py`(方案 5.3 状态转换)
+- [x] 单维度问答闭环:提问 → 判断质量 → 追问/推进(mock 测试验证)
+- [x] LLM 输出协议(方案 5.5:`{thinking, assess, next_question, action}`)
+- [x] **服务端兜底校验**:action 枚举合法 + 轮次上限(max_q_per_dim=3, max_total_q=15)
+- ✅ **验收**:状态机冒烟测试 7 例通过;候选人能答、面试官基于回答出下一问(真实 DeepSeek 手动验证待网络恢复)
 
 ### W3 — 多维度推进 + API + 候选人前端
-- [ ] 逐维度推进 + 阶段切换(OPENING→PROBING→BEHAVIORAL→CANDIDATE_QA→CLOSING)
-- [ ] 8 个 REST 接口(方案第七章)
+- [x] 答题闭环 API:`POST /interviews/{id}/message`(DB 快照恢复 → 状态机推进 → 写回)+ `GET messages` + `GET state`
+- [x] 逐维度推进 / 阶段切换状态机支持(测试覆盖 NEXT_DIMENSION;GO_BEHAVIORAL/GO_CANDIDATE_QA 待真实 LLM 验证)
+- [ ] 剩余接口:触发评估 `POST /evaluate`(W4)、候选人报告热力图(可选)
 - [ ] 候选人页:聊天 UI + 维度进度 + 免登录链接
-- ✅ **验收**:一场面试自动覆盖全部维度、不越轮次上限
+- ⏳ **验收**:闭环 API 集成测试通过;一场面试自动覆盖全部维度、不越轮次上限(真实 LLM 验证待网络恢复)
 
 ### W4 — 评估 Agent + HR 后台
-- [ ] 评估:1 次 LLM 调用出报告 JSON(方案 4.5)+ 证据引用原话
-- [ ] 报告页:雷达图(echarts)+ 得分 + 建议
-- [ ] HR 后台:上传 → 发起面试 → 查看报告
-- ✅ **验收**:面试结束自动出报告
+- [x] 评估 Agent:1 次 LLM 调用出报告 JSON(方案 4.5)+ 证据引用原话
+- [x] 收尾自动触发评估 + `POST /evaluate` 手动触发;`GET /report` 已可用
+- [ ] 报告页:雷达图(echarts)+ 得分 + 建议(前端)
+- [ ] HR 后台:上传 → 发起面试 → 查看报告(前端)
+- ✅ **验收(后端)**:收尾自动出报告(集成测试断言通过);面试结束报告落库
 
 ### W5 — 打磨 + 演示数据 + 横向对比
-- [ ] `make_demo.py`(5 岗位 + 20 简历 + 预置面试)
+- [x] `make_demo.py`(5 岗位 + 20 简历 + 预置面试,2026-08-31)
 - [ ] 多候选人横向对比表(精简版)
 - ✅ **验收**:完整闭环可演示
 
@@ -175,4 +177,12 @@ Interview-commentator/
 - [x] 开源调研(已完成)
 - [x] MVP 方向决策(已完成)
 - [x] 开发计划(本文件)
-- [ ] W1 骨架(待用户确认后开始)
+- [x] git 初始化(2026-08-30,commit `ebdb19d`)
+- [x] W1 骨架代码(数据层 + 简历/JD 解析 Agent + API;真实 LLM 验收待网络恢复后跑)
+- [x] W2 状态机 v1(commit `67888a4`,mock 冒烟测试 7 例通过)
+- [x] W3 API:答题闭环(commit `b035c10`)
+- [x] W4 评估 Agent 后端(commit `a5d5968`,收尾自动出报告;12 例离线测试全绿)
+- [x] 前端全部完成(候选人页 `dc9dc74` + 后台/报告页 `776ac61`)
+- [x] W5:演示数据(make_demo.py)
+- [ ] W5:多候选人横向对比 + 打磨
+- ⏳ 待办:真实 LLM 端到端验收(本地代理 127.0.0.1:7897 未连通)
