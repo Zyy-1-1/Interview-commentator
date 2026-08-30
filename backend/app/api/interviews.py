@@ -15,6 +15,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from ..agents.evaluator import evaluate
 from ..agents.interviewer.graph import build_llm_graph, compute_progress
 from ..agents.interviewer.state import initial_state
 from ..db import get_db
@@ -65,6 +66,29 @@ def _persist(interview: Interview, result: dict, db: Session) -> None:
 def _current_dim_name(result: dict) -> str | None:
     progress = compute_progress(result)
     return progress.get("current_dimension") or None
+
+
+def _run_evaluation(interview: Interview, db: Session) -> None:
+    """调用评估 Agent,报告写入 Interview.report。失败不抛(留空可手动重试)。"""
+    try:
+        job = interview.job
+        cand = interview.candidate
+        dims = json.loads(job.dimensions or "[]")
+        parsed = json.loads(cand.parsed_resume) if cand.parsed_resume else None
+        messages = [
+            {"role": m.role, "text": m.text} for m in interview.messages
+        ]
+        report = evaluate(
+            job_title=job.title,
+            dimensions=dims,
+            parsed_resume=json.dumps(parsed, ensure_ascii=False) if parsed else None,
+            messages=messages,
+        )
+        interview.report = json.dumps(report, ensure_ascii=False)
+        db.commit()
+        logger.info("面试 %s 评估完成:总分 %s", interview.id, report.get("summary_score"))
+    except Exception as e:  # noqa: BLE001  评估失败不中断面试流程,报告留空可重试
+        logger.exception("面试 %s 评估失败: %s", interview.id, e)
 
 
 def _to_turn(result: dict) -> InterviewTurn:
@@ -140,6 +164,9 @@ def send_message(
     _record_messages(interview, result, role="candidate", reply=reply, db=db)
     _persist(interview, result, db)
     _record_messages(interview, result, role="agent", reply="", db=db)
+    # 收尾后自动生成评估报告
+    if result.get("finished"):
+        _run_evaluation(interview, db)
     return _to_turn(result)
 
 
@@ -192,3 +219,15 @@ def get_state(interview_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "面试不存在")
     state = _load_state(interview)
     return InterviewStateOut(status=interview.status, progress=compute_progress(state))
+
+
+@router.post("/{interview_id}/evaluate")
+def trigger_evaluate(interview_id: int, db: Session = Depends(get_db)):
+    """手动触发评估(收尾后已自动触发;此处用于失败重试/中途查看)。"""
+    interview = db.get(Interview, interview_id)
+    if not interview:
+        raise HTTPException(404, "面试不存在")
+    _run_evaluation(interview, db)
+    if not interview.report:
+        raise HTTPException(500, "评估失败,请稍后重试")
+    return {"interview_id": interview_id, "report": json.loads(interview.report)}

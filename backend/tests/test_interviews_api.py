@@ -9,12 +9,22 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.agents import evaluator
 from app.agents.interviewer.graph import build_graph
 from app.agents.interviewer.state import ACTION_CLOSING, ACTION_CONTINUE_DIMENSION, ACTION_NEXT_DIMENSION
 from app.api import interviews as interviews_api
 from app.db import Base, get_db
 from app.main import app
 from app.models import Candidate, Job
+
+FAKE_REPORT = {
+    "summary_score": 78,
+    "suggestion": "建议进入二面",
+    "dimensions": [{"name": "Python 编程", "score": 8.0, "evidence": ["原话"]}],
+    "strengths": ["技术扎实"],
+    "risks": ["行为维度不足"],
+    "next_step_questions": ["二面问系统设计"],
+}
 
 DIMS = [
     {"name": "Python 编程", "type": "hard", "weight": 0.3, "keywords": ["Python", "asyncio"]},
@@ -84,6 +94,8 @@ def test_full_interview_loop(test_db, monkeypatch):
     )
     graph = build_graph(judge)
     monkeypatch.setattr(interviews_api, "_get_graph", lambda: graph)
+    # 收尾自动评估:mock evaluator 的 chat_json
+    monkeypatch.setattr(evaluator, "chat_json", lambda system, user, **kw: FAKE_REPORT)
 
     client = TestClient(app)
 
@@ -144,3 +156,10 @@ def test_full_interview_loop(test_db, monkeypatch):
     state = r.json()
     assert state["status"] == "finished"
     assert state["progress"]["total_questions"] == 3
+
+    # 8) 收尾自动触发评估,报告已生成
+    r = client.get(f"/api/interviews/{iv_id}/report")
+    assert r.status_code == 200, r.text
+    report = r.json()["report"]
+    assert report["summary_score"] == 78
+    assert report["suggestion"] == "建议进入二面"
