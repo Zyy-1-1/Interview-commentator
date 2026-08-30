@@ -145,6 +145,44 @@ def list_interviews(db: Session = Depends(get_db)):
     return items
 
 
+@router.get("/comparison")
+def comparison(db: Session = Depends(get_db)):
+    """多候选人横向对比(按岗位分组):同一岗位已完成面试的维度得分 + 总分。
+
+    放在 /{interview_id} 之前注册,避免路径被当作 interview_id 匹配。
+    """
+    rows = (
+        db.query(Interview)
+        .filter(Interview.status == "finished", Interview.report.isnot(None))
+        .order_by(Interview.job_id, Interview.created_at)
+        .all()
+    )
+    groups: dict[int, dict] = {}
+    for iv in rows:
+        report = json.loads(iv.report)
+        g = groups.setdefault(
+            iv.job_id,
+            {
+                "job_id": iv.job_id,
+                "job_title": iv.job.title if iv.job else "",
+                "dimensions": [d["name"] for d in report.get("dimensions", [])],
+                "candidates": [],
+            },
+        )
+        g["candidates"].append(
+            {
+                "interview_id": iv.id,
+                "candidate_name": iv.candidate.name if iv.candidate else None,
+                "summary_score": report.get("summary_score"),
+                "suggestion": report.get("suggestion", ""),
+                "scores": [d.get("score") for d in report.get("dimensions", [])],
+            }
+        )
+    for g in groups.values():
+        g["candidates"].sort(key=lambda c: c["summary_score"] or 0, reverse=True)
+    return {"groups": list(groups.values())}
+
+
 @router.get("/{interview_id}", response_model=InterviewOut)
 def get_interview(interview_id: int, db: Session = Depends(get_db)):
     interview = db.get(Interview, interview_id)

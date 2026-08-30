@@ -2,7 +2,10 @@
   <div class="dashboard">
     <header class="topbar">
       <div class="brand">面评家 · HR 后台</div>
-      <a class="goto" href="/" @click.prevent>候选人面试页</a>
+      <div class="nav">
+        <a class="goto" href="/admin/comparison">横向对比</a>
+        <a class="goto" href="/" @click.prevent>候选人面试页</a>
+      </div>
     </header>
 
     <div class="layout">
@@ -209,6 +212,12 @@ export default {
   font-size: 20px;
   font-weight: 700;
   color: #1a73e8;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .goto {

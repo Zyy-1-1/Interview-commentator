@@ -8,8 +8,9 @@ const routes = [
     name: 'interview',
     component: () => import('../candidate/InterviewView.vue'),
   },
-  // HR 后台(建设中)
+  // HR 后台
   { path: '/admin', name: 'admin', component: () => import('../admin/DashboardView.vue') },
+  { path: '/admin/comparison', name: 'comparison', component: () => import('../admin/ComparisonView.vue') },
   {
     path: '/admin/interview/:id',
     name: 'report',
