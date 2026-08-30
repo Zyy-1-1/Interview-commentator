@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 环境与密钥(绝不提交 .env)
+.env
+.env.local
+
+# 数据库
+*.db
+*.sqlite3
+
+# 前端
+node_modules/
+dist/
+.vite/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 上传的临时文件
+backend/uploads/
+
+# Claude Code 本地设置(不提交)
+.claude/settings.local.json
