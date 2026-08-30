@@ -18,7 +18,39 @@ async function request(path, options = {}) {
   return data
 }
 
+export const jobs = {
+  list: () => request('/jobs'),
+  create: (title, jdText) =>
+    request('/jobs', {
+      method: 'POST',
+      body: JSON.stringify({ title, jd_text: jdText }),
+    }),
+}
+
+export const candidates = {
+  list: () => request('/candidates'),
+  upload: async (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    let resp
+    try {
+      resp = await fetch(`${BASE}/candidates`, { method: 'POST', body: form })
+    } catch {
+      throw new Error('网络异常,请确认后端服务已启动')
+    }
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new Error(data.detail || `上传失败(${resp.status})`)
+    return data
+  },
+}
+
 export const interviews = {
+  list: () => request('/interviews'),
+  create: (jobId, candidateId) =>
+    request('/interviews', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId, candidate_id: candidateId }),
+    }),
   // 面试状态(进度)
   state: (id) => request(`/interviews/${id}/state`),
   // 历史消息

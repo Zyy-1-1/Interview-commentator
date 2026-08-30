@@ -21,6 +21,16 @@ class JobOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("dimensions", mode="before")
+    @classmethod
+    def _parse_dimensions(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return v
+
 
 # ---------- Candidate ----------
 class CandidateOut(BaseModel):
@@ -31,6 +41,16 @@ class CandidateOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("parsed_resume", mode="before")
+    @classmethod
+    def _parse_parsed_resume(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return v
 
 
 # ---------- Interview ----------
@@ -70,6 +90,16 @@ class InterviewOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class InterviewListItem(BaseModel):
+    """HR 后台面试列表项(含岗位/候选人名称与报告总分)。"""
+    id: int
+    status: str
+    job_title: str
+    candidate_name: Optional[str] = None
+    summary_score: Optional[float] = None
+    created_at: datetime
 
 
 # 候选人提交回答 / 面试官响应的统一结构

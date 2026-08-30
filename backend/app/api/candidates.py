@@ -32,6 +32,11 @@ def _save_upload(file: UploadFile) -> Path:
     return path
 
 
+@router.get("", response_model=list[CandidateOut])
+def list_candidates(db: Session = Depends(get_db)):
+    return db.query(Candidate).order_by(Candidate.created_at.desc()).all()
+
+
 @router.post("", response_model=CandidateOut)
 async def upload_candidate(file: UploadFile, db: Session = Depends(get_db)):
     path = _save_upload(file)

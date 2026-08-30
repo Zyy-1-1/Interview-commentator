@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+@router.get("", response_model=list[JobOut])
+def list_jobs(db: Session = Depends(get_db)):
+    return db.query(Job).order_by(Job.created_at.desc()).all()
+
+
 @router.post("", response_model=JobOut)
 def create_job(body: JobCreate, db: Session = Depends(get_db)):
     job = Job(title=body.title, jd_text=body.jd_text)

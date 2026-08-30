@@ -22,6 +22,7 @@ from ..db import get_db
 from ..models import Candidate, Interview, InterviewMessage, Job
 from ..schemas import (
     InterviewCreate,
+    InterviewListItem,
     InterviewMessage as InterviewMessageIn,
     InterviewOut,
     InterviewStateOut,
@@ -123,6 +124,25 @@ def create_interview(body: InterviewCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(interview)
     return interview
+
+
+@router.get("", response_model=list[InterviewListItem])
+def list_interviews(db: Session = Depends(get_db)):
+    rows = db.query(Interview).order_by(Interview.created_at.desc()).all()
+    items = []
+    for iv in rows:
+        report = json.loads(iv.report) if iv.report else None
+        items.append(
+            {
+                "id": iv.id,
+                "status": iv.status,
+                "job_title": iv.job.title if iv.job else "",
+                "candidate_name": iv.candidate.name if iv.candidate else None,
+                "summary_score": report.get("summary_score") if report else None,
+                "created_at": iv.created_at,
+            }
+        )
+    return items
 
 
 @router.get("/{interview_id}", response_model=InterviewOut)
