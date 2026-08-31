@@ -10,8 +10,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.mark.skipif(
-    not settings.deepseek_api_key,
-    reason="未配置 DEEPSEEK_API_KEY,跳过 LLM 相关测试",
+    not settings.dashscope_api_key,
+    reason="未配置 DASHSCOPE_API_KEY,跳过 LLM 相关测试",
 )
 def test_analyze_jd_dimensions():
     jd = (FIXTURES / "sample_jd.md").read_text(encoding="utf-8")

@@ -1,29 +1,36 @@
 # 面评家 · AI 模拟面试官
 
-> 面向**应聘者**的 AI 模拟面试官:选择目标岗位(或粘贴 JD)+ 上传自己的简历 → 免登录进入模拟面试 → AI 按 JD 拆成能力维度动态追问 → 收尾自动评估 → 输出个人竞争力报告(雷达图 + 原话证据 + 强项短板 + 提升建议)。
+> 面向**应聘者**的自助闭环:打开首页就是岗位大厅 → 选岗位、上传简历(PDF/Word/MD/TXT)→ 先看「人岗匹配分析」再决定要不要面 → 挑一位数字人面试官风格(严谨技术官 / 亲和 HR / 压力面)→ 语音提问、文字答题的模拟面试 → 收尾自动输出**个人竞争力报告**(雷达图 + 原话证据 + 强项短板 + 提升建议)。
 >
-> 核心叙事(答辩):**自研 LangGraph 状态机 + 动态追问 + 证据引用 + 标准化个人评估报告**。
+> 岗位侧配套治理:任何人可自助发布招聘信息,官方口令审核通过后才能上架大厅。
+>
+> 核心叙事(答辩):**自研 LangGraph 状态机 + 动态追问 + 证据引用 + 标准化个人评估报告**;人格化只发生在 prompt 语言层,决策内核不变。
 
 ---
 
 ## 一、产品闭环
 
 ```
-应聘者选择目标岗位 / 粘贴 JD
-      │  JD 分析 Agent → 考察维度清单(带权重)
+岗位大厅(首页,仅展示审核通过的岗位)
+      │  选一个岗位 → /apply/{jobId}
       ▼
-上传自己的简历(可选,自动解析出经历/技能)
+上传简历(PDF/Word/MD/TXT)
+      │  简历解析 Agent(pdfminer/python-docx → LLM 结构化)
+      │  匹配 Agent:简历 × 岗位维度 → 匹配分 + 雷达 + 亮点/缺口
+      ▼
+看完分析,再决定:换简历 or 开始模拟面试(选定面试官风格)
       │
-发起模拟面试 → 生成免登录链接 /interview/{id}
-      │
-应聘者 文字答题 ──┐
-      │           │ 面试官 Agent(LangGraph 状态机)
-      ▼           │  · 判断回答质量 → 追问 / 推进下一维度
-动态追问 ◄────────┘  · 服务端兜底:action 校验 + 轮次上限
+/interview/{id} 数字人面试官(SVG 形象 + 浏览器 TTS 语音提问)
+      │           面试官 Agent(LangGraph 状态机)
+应聘者 文字答题 ──┤  · 判断回答质量 → 追问 / 推进下一维度
+      ▼           │  · 服务端兜底:action 校验 + 轮次上限
+动态追问 ◄────────┘
       │
 收尾 → 评估 Agent 一次调用 → 个人竞争力报告 JSON
       ▼
-应聘者查看报告(雷达图 + 原话证据 + 强项短板 + 提升建议)
+查看报告 /admin/reports/{id}(雷达图 + 原话证据 + 提升建议)
+
+支线:发布招聘信息 /jobs/submit → 官方审核 /review(口令门控)→ 上架大厅
 ```
 
 ## 二、技术栈
@@ -32,73 +39,91 @@
 |---|---|
 | 后端 | FastAPI + Uvicorn |
 | Agent 编排 | **LangGraph**(StateGraph 状态机) |
-| LLM | DeepSeek(OpenAI 兼容协议,强制 JSON 输出) |
-| 数据 | SQLite + SQLAlchemy(MVP;生产可切 PostgreSQL) |
-| 简历解析 | markitdown(开源复用,Apache-2.0)+ PDF/DOCX 解析 |
+| LLM | **千问 DashScope**(qwen-plus,OpenAI 兼容协议,强制 JSON 输出) |
+| 数据 | SQLite + SQLAlchemy(MVP;生产可切 PostgreSQL)+ 启动期幂等补列迁移 |
+| 简历解析 | pdfminer.six(PDF)+ python-docx(DOCX)提文本 → LLM 结构化抽取 |
+| 数字人 | 纯前端 SVG 形象(3 风格外观 + 眨眼/浮动/口型动画),零服务器成本 |
+| 语音 | 浏览器 Web Speech API 端侧 TTS(zh-CN,不可用时静默降级纯文字) |
 | 前端 | Vue3 + Vite + vue-router + echarts |
-| 部署 | docker compose |
+| 审核治理 | 岗位 status 工作流(pending/approved/rejected)+ `hmac.compare_digest` 口令校验 |
 
 ## 三、架构
 
 ```
-┌──────────── 前端 (Vue3, :5173) ────────────┐
-│  candidate/  应聘者面试页(聊天 UI + 进度)    │
-│  admin/      演示后台(岗位库/简历库/面试库)   │
-└───────────────────┬─────────────────────────┘
+┌──────────── 前端 (Vue3, :5173) ─────────────────────────┐
+│  views/      岗位大厅 / 简历分析页 / 发布招聘 / 官方审核   │
+│  candidate/  数字人语音面试页(SVG + TTS + 聊天 UI)      │
+│  admin/      个人竞争力报告页(雷达图 + 证据)             │
+│  components/DigitalHuman.vue  composables/useSpeech.js   │
+└───────────────────┬──────────────────────────────────────┘
                     │ /api(dev 代理 → :8000)
-┌───────────────────▼─────────────────────────┐
-│ FastAPI (:8000)                              │
-│  api/    jobs · candidates · interviews · report │
-│  agents/ resume_parser → jd_analyzer        │
-│          interviewer/ (LangGraph 状态机)      │
-│          evaluator (一次调用出个人评估报告)     │
-│  llm.py DeepSeek client(chat_text / chat_json)│
-│  SQLite + SQLAlchemy(4 张表)                  │
-└──────────────────────────────────────────────┘
+┌───────────────────▼──────────────────────────────────────┐
+│ FastAPI (:8000)                                           │
+│  api/    jobs(提交/审核/上架)· candidates(上传/match)     │
+│          interviews(状态机答题闭环)· report               │
+│  agents/ resume_parser · jd_analyzer · matcher            │
+│          interviewer/(LangGraph 状态机,style 人格注入)    │
+│          evaluator(一次调用出个人评估报告)                 │
+│  llm.py  千问 client(chat_text / chat_json)              │
+│  SQLite + SQLAlchemy(4 张表 + 幂等补列迁移)               │
+└───────────────────────────────────────────────────────────┘
 ```
 
 **面试状态机(面试官 Agent)**:LLM 负责「聪明的判断」,状态机负责「流程的可靠性」。
 - 一次 `invoke` = 推进一个回合(开场白 / 判断并出下一问 / 收尾);
 - 中间状态以 JSON 快照存库(`Interview.state`),异步多轮 = 多次恢复 + invoke;
-- 服务端二次校验 action 枚举 + 轮次上限(每维度 ≤3 问,全场 ≤15 问),LLM 出错自动兜底降级,不中断面试。
+- 服务端二次校验 action 枚举 + 轮次上限(每维度 ≤3 问,全场 ≤15 问),LLM 出错自动兜底降级,不中断面试;
+- **三种面试官风格(pro/friendly/pressure)只替换 system prompt 中的人格段**,action 枚举、状态迁移、评估标准完全不变——人格化是语言层,决策是内核。
 
-**可审计性**:逐轮消息(`interview_messages`)留痕,含该轮质量判断(assess),报告证据引用候选**原话**,可复核。
+**可审计性**:逐轮消息(`interview_messages`)留痕,含该轮质量判断(assess),报告证据引用应聘者**原话**,可复核。
 
 ## 四、仓库结构
 
 ```
 Interview-commentator/
 ├── docker-compose.yml        # 一键起后端(前端可追加服务)
-├── .env.example              # 环境变量样例(复制为 .env 填 Key)
+├── start_all.bat             # Windows 一键启动前后端
 ├── backend/
-│   ├── requirements.txt
-│   ├── Dockerfile
+│   ├── .env.example          # 环境变量样例(复制为 .env 填 Key)
 │   ├── app/
 │   │   ├── main.py           # FastAPI 入口
-│   │   ├── config.py / db.py / models.py / schemas.py / llm.py
-│   │   ├── api/              # jobs · candidates · interviews · reports
-│   │   └── agents/           # resume_parser · jd_analyzer · interviewer/ · evaluator
-│   └── tests/                # 12 例离线测试(mock LLM,可离线跑)
-├── frontend/
-│   ├── vite.config.js        # :5173,/api 代理到 :8000
-│   └── src/
-│       ├── candidate/        # 应聘者面试页
-│       ├── admin/            # 演示后台(岗位库/简历库/面试库 + 报告页)
-│       ├── api/index.js      # 接口封装
-│       └── router/index.js
+│   │   ├── config.py / db.py(补列迁移)/ models.py / schemas.py / llm.py
+│   │   ├── api/              # jobs · candidates · interviews
+│   │   └── agents/           # resume_parser · jd_analyzer · matcher
+│   │                         # interviewer/(含 PERSONAS)· evaluator
+│   └── tests/                # 离线测试(mock LLM,可离线跑)
+├── frontend/src/
+│   ├── views/                # JobHallView · ResumeAnalysisView
+│   │                         # JobSubmitView · ReviewView
+│   ├── candidate/            # InterviewView(数字人 + TTS)
+│   ├── admin/                # ReportView(个人竞争力报告)
+│   ├── components/DigitalHuman.vue
+│   ├── composables/useSpeech.js
+│   └── api/index.js · router/index.js
 └── scripts/
-    └── make_demo.py          # 一键生成演示数据(5 岗位 + 20 简历 + 5 场面试)
+    ├── make_demo.py          # 一键生成演示数据(5 岗位 + 20 简历 + 5 场面试)
+    └── 演示脚本.md            # 现场演示走查 + 答辩叙事
 ```
 
 ## 五、快速开始
 
-### 1. 本地开发
+### 1. 配置密钥
+
+```bash
+copy .env.example backend\.env     # 或 cp .env.example backend/.env
+# 编辑 backend/.env:
+#   DASHSCOPE_API_KEY=sk-xxx      (阿里云百炼控制台申请)
+#   REVIEW_PASSPHRASE=自定口令     (/review 审核页使用)
+```
+
+> ⚠️ Windows 坑:若「系统环境变量」里已有同名 `DASHSCOPE_API_KEY`,它会**覆盖 .env**(pydantic-settings 环境变量优先级更高),请在「编辑系统环境变量」中删除旧值。
+
+### 2. 本地开发
 
 ```bash
 # 后端
 cd backend
-cp ../.env.example .env            # 填入 DEEPSEEK_API_KEY
-pip install -r requirements.txt    # 代理不通时加 --proxy ""
+pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 前端(另开终端)
@@ -107,26 +132,26 @@ npm install
 npm run dev                        # http://localhost:5173
 ```
 
-- 应聘者面试页:发起模拟面试后生成 `/interview/{id}`,免登录直接答题
-- 演示后台:`http://localhost:5173/admin`(岗位库 / 简历库 / 面试库 / 查看个人报告)
-- 横向对比:`http://localhost:5173/admin/comparison`(演示用内部功能)
+或直接双击 `start_all.bat`(Windows)。
 
-> Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程。
+- 首页 = 岗位大厅;简历分析 `/apply/{jobId}`;面试 `/interview/{id}`;报告 `/admin/reports/{id}`
+- 发布招聘 `/jobs/submit`;官方审核 `/review`(输入口令)
 
-### 2. 生成演示数据(可选)
+> Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程(重启时自动执行补列迁移)。
+
+### 3. 生成演示数据(可选,纯离线)
 
 ```bash
 python scripts/make_demo.py
 ```
 
-纯离线生成 5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中),不依赖 LLM,用于演示与验收。会清空并重建四张表。
+5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表。
 
-### 3. Docker 部署
+### 4. Docker 部署
 
 ```bash
-cp .env.example .env        # 填 DEEPSEEK_API_KEY
+copy .env.example backend\.env    # 填 DASHSCOPE_API_KEY
 docker compose up -d --build
-# 后端 :8000(MVP 阶段仅后端;前端用 nginx 反代或 Vite preview)
 ```
 
 ## 六、三组验收指标(答辩用)
@@ -135,48 +160,52 @@ docker compose up -d --build
 |---|---|---|
 | 追问触发率 | ≥60% | 固定答案回归测试,统计回答质量一般时是否触发追问 |
 | 评估一致率 | 3 次跑分极差 ≤1 分 | 同一场面试重复评估 3 次,比较维度分极差 |
-| 单场成本 | <¥1 | 统计一次完整面试的 DeepSeek token 消耗 |
+| 单场成本 | <¥1 | 一次完整面试的千问 token 消耗(TTS 与数字人均为端侧,零服务器成本) |
 
 ## 七、API 一览
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/jobs` | 创建目标岗位(自动 JD 分析出考察维度) |
-| GET | `/api/jobs` | 岗位列表 |
-| POST | `/api/candidates` | 上传应聘者简历(multipart,自动解析) |
-| GET | `/api/candidates` | 应聘者列表 |
-| POST | `/api/interviews` | 发起模拟面试 |
-| GET | `/api/interviews` | 面试列表(含岗位/应聘者/总分) |
-| POST | `/api/interviews/{id}/message` | 应聘者答题闭环(空 reply = 开场白) |
+| GET | `/api/jobs?status=approved` | 岗位大厅(默认仅上架;审核页传 pending/all) |
+| POST | `/api/jobs` | 自助发布招聘(默认 pending;`skip_review` 供演示直挂) |
+| POST | `/api/jobs/review` | 官方审核:口令 → approve/reject(附原因) |
+| GET | `/api/jobs/{id}` | 岗位详情(含考察维度) |
+| POST | `/api/jobs/{id}/analyze` | JD 分析失败重试 |
+| POST | `/api/candidates` | 上传简历(multipart,自动解析) |
+| GET | `/api/candidates/{id}/match/{jobId}` | 人岗匹配分析(总分/维度分/亮点/缺口) |
+| POST | `/api/interviews` | 发起模拟面试(job+candidate+style) |
+| GET | `/api/interviews/{id}` | 面试详情(含 style) |
+| POST | `/api/interviews/{id}/message` | 答题闭环(空 reply = 开场白) |
 | GET | `/api/interviews/{id}/messages` | 逐轮消息(回放/审计) |
 | GET | `/api/interviews/{id}/state` | 会话进度快照 |
-| POST | `/api/interviews/{id}/evaluate` | 手动触发评估(收尾后已自动) |
 | GET | `/api/interviews/{id}/report` | 个人竞争力评估报告 |
-| GET | `/api/interviews/comparison` | 多应聘者横向对比(演示用,按岗位分组) |
 
 ## 八、测试
 
-后端离线测试 **12 例全绿**(mock LLM 注入,确定性、可离线、CI 可用):
+后端离线测试 **25 通过 + 2 跳过**(跳过的为需真实 Key 的联网用例;mock LLM 注入,确定性、CI 可用):
 
 ```bash
 cd backend
-python -m pytest tests/ -q
+set DASHSCOPE_API_KEY= && python -m pytest tests/ -q
 ```
 
-- `test_state_machine.py`:状态机冒烟 7 例(action 枚举、维度推进、轮次上限、收尾)
-- `test_interviews_api.py`:答题闭环 API 集成(含收尾自动出报告断言)
-- `test_evaluator.py`:评估 Agent 报告结构
+- `test_state_machine.py`:状态机冒烟(action 枚举、维度推进、轮次上限、收尾)
+- `test_interviews_api.py`:答题闭环 + 风格进 prompt + match 接口
+- `test_jobs_api.py`:自助提交 → pending → 口令审核 → 上架全流程
+- `test_matcher_and_style.py`:三种人格差异 + 协议不变 + 匹配 Agent
+- `test_evaluator.py`:评估报告结构
 
-> 策略说明:Agent / 状态机测试一律注入 **mock LLM**(fake 判断器),保证确定性、可离线跑、CI 可用;真实 DeepSeek 仅做手动验收,不写入自动化测试,避免依赖 API Key / token 成本。
+> 策略:Agent / 状态机测试一律注入 **mock LLM**(fake 判断器),不依赖 API Key;真实千问仅做手动验收。
 
 ## 九、开源复用清单
 
 | 来源 | 复用内容 | License |
 |---|---|---|
-| [DeepInterview](https://github.com/ngoanpv/DeepInterview) | markitdown 简历解析思路 | Apache-2.0(直接引用) |
+| pdfminer.six / python-docx | 简历文档文本提取 | MIT / 各开源协议 |
+| [DeepInterview](https://github.com/ngoanpv/DeepInterview) | 简历解析 + LLM 结构化思路(参考,未复制代码;markitdown 因依赖 onnxruntime 未采用) | Apache-2.0 |
 | offerMaster | 追问 prompt 风格(仅吸收思路,自研实现) | 无 LICENSE,不复制代码 |
 | structured-hiring | 评分标准概念(可选吸收) | MIT |
 
 ---
 
-**开发进度**:见《面评家_MVP开发计划.md》。W1–W5 已完成(数据层/状态机/答题闭环/评估/前端/演示数据/横向对比);W6 部署 + 演示材料进行中。
+**当前版本**:应聘者自助闭环改版(千问 + 数字人语音 + 岗位审核治理)。

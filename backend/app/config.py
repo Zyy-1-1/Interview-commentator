@@ -1,7 +1,11 @@
-"""应用配置:从环境变量 / .env 读取。"""
+"""应用配置:从环境变量 / .env 读取(.env 优先,避免被陈旧系统环境变量覆盖)。"""
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 class Settings(BaseSettings):
@@ -11,10 +15,25 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # LLM(DeepSeek,OpenAI 兼容)
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        # .env 排在系统环境变量之前:本地调试/旧系统变量不会悄悄盖住项目配置
+        return init_settings, dotenv_settings, env_settings, file_secret_settings
+
+    # LLM(千问 DashScope,OpenAI 兼容协议)
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_model: str = "qwen-plus"
+
+    # 岗位审核口令(官方后台 /review 页使用)
+    review_passphrase: str = ""
 
     # 服务
     host: str = "0.0.0.0"

@@ -1,4 +1,4 @@
-"""LLM 封装:DeepSeek(OpenAI 兼容协议)。
+"""LLM 封装:千问 DashScope(OpenAI 兼容协议)。
 
 对外只暴露两个函数:
 - chat_text(): 自由文本
@@ -24,8 +24,8 @@ def get_client() -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(
-            api_key=settings.deepseek_api_key or "sk-empty",
-            base_url=settings.deepseek_base_url,
+            api_key=settings.dashscope_api_key or "sk-empty",
+            base_url=settings.dashscope_base_url,
         )
     return _client
 
@@ -56,7 +56,7 @@ def chat_text(
     temperature: float = 0.7,
 ) -> str:
     resp = get_client().chat.completions.create(
-        model=settings.deepseek_model,
+        model=settings.dashscope_model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -77,7 +77,7 @@ def chat_json(
     for attempt in range(max_retries + 1):
         try:
             resp = get_client().chat.completions.create(
-                model=settings.deepseek_model,
+                model=settings.dashscope_model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},

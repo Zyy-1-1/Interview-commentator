@@ -42,6 +42,8 @@ class InterviewState(TypedDict, total=False):
 
     # ---------- 业务状态(持久化) ----------
     interview_id: NotRequired[int]
+    job_title: NotRequired[str]                    # 岗位名(注入面试官人格 prompt)
+    style: NotRequired[str]                        # 面试官人格 pro|friendly|pressure
     phase: NotRequired[str]                        # PHASE_*
     dim_idx: NotRequired[int]                      # 当前考察维度下标
     dimensions: NotRequired[list[dict[str, Any]]]  # JD 分析输出的维度清单(见 jd_analyzer)
@@ -67,12 +69,16 @@ def initial_state(
     *,
     interview_id: int,
     dimensions: list[dict[str, Any]],
+    job_title: str = "本岗位",
+    style: str = "pro",
     max_q_per_dim: int = 3,
     max_total_q: int = 15,
 ) -> dict[str, Any]:
     """创建一份全新的面试状态(默认值对齐 config.py 面试规则)。"""
     return {
         "interview_id": interview_id,
+        "job_title": job_title,
+        "style": style,
         "phase": PHASE_OPENING,
         "dim_idx": 0,
         "dimensions": dimensions,

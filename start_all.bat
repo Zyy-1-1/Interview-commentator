@@ -28,6 +28,6 @@ if %errorlevel%==0 (
 
 rem ---------- 打开浏览器 ----------
 timeout /t 4 /nobreak >nul
-echo 打开 http://localhost:5173/admin ...
-start "" http://localhost:5173/admin
+echo 打开 http://localhost:5173 (岗位大厅) ...
+start "" http://localhost:5173/
 echo 完成。两个服务各自开了一个终端窗口,关掉窗口即停止服务。

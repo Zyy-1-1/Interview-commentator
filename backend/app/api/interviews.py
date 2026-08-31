@@ -48,7 +48,12 @@ def _load_state(interview: Interview) -> dict:
         state = json.loads(interview.state)
     else:
         dims = json.loads(interview.job.dimensions or "[]")
-        state = initial_state(interview_id=interview.id, dimensions=dims)
+        state = initial_state(
+            interview_id=interview.id,
+            dimensions=dims,
+            job_title=interview.job.title or "本岗位",
+            style=interview.style or "pro",
+        )
     return state
 
 
@@ -108,6 +113,9 @@ def _to_turn(result: dict) -> InterviewTurn:
     )
 
 
+VALID_STYLES = {"pro", "friendly", "pressure"}
+
+
 @router.post("", response_model=InterviewOut)
 def create_interview(body: InterviewCreate, db: Session = Depends(get_db)):
     job = db.get(Job, body.job_id)
@@ -118,8 +126,12 @@ def create_interview(body: InterviewCreate, db: Session = Depends(get_db)):
         raise HTTPException(404, "候选人不存在")
     if not job.dimensions:
         raise HTTPException(422, "该岗位尚未完成 JD 分析(维度缺失),请先重试 JD 分析")
+    if body.style not in VALID_STYLES:
+        raise HTTPException(422, f"未知面试官风格 {body.style!r},可选 {sorted(VALID_STYLES)}")
 
-    interview = Interview(job_id=job.id, candidate_id=cand.id, status="created")
+    interview = Interview(
+        job_id=job.id, candidate_id=cand.id, status="created", style=body.style
+    )
     db.add(interview)
     db.commit()
     db.refresh(interview)

@@ -2,7 +2,7 @@
   <div class="report">
     <header class="topbar">
       <div class="brand">面评家 · 竞争力报告 #{{ id }}</div>
-      <a class="back" href="/admin">← 返回演示后台</a>
+      <router-link class="back" to="/">← 返回岗位大厅</router-link>
     </header>
 
     <div v-if="state.error" class="empty">
