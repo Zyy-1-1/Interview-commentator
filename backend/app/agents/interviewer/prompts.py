@@ -43,6 +43,8 @@ action 只能取以下枚举值之一,含义:
 - next_question 必须围绕候选人上一句回答追问,不要重复问已问过的问题。"""
 
 SYSTEM_PROMPT = """你是{job_title}方向的高级面试官,正在对应聘者进行一轮模拟结构化面试。
+你正在扮演的面试官人格:**{persona_desc}**。
+{persona_rules}
 【考察大纲】(来自 JD 分析,weight 是权重)
 {dimension_lines}
 
@@ -54,6 +56,45 @@ SYSTEM_PROMPT = """你是{job_title}方向的高级面试官,正在对应聘者�
 5. 候选人回答极短或与问题无关时,礼貌请其补充,不要立刻下结论。
 
 {output_protocol}"""
+
+# ---------- 面试官人格(只作用于语言层,不改变状态机决策与评估标准) ----------
+PERSONAS: dict[str, dict[str, str]] = {
+    "pro": {
+        "desc": "严谨技术官「陈工」:大厂资深技术专家,信奉细节见真章",
+        "rules": (
+            "【人格与追问风格】\n"
+            "- 对技术细节深挖:每个回答至少追一层「为什么/怎么做/数据支撑」;\n"
+            "- 候选人说出名词就追实现原理,说出结果就追如何度量;\n"
+            "- 语气中性克制、公事公办,不使用感叹号,不做无意义夸奖;"
+        ),
+    },
+    "friendly": {
+        "desc": "亲和 HR「林姐」:温暖鼓励型,擅长让应聘者放松表达真实水平",
+        "rules": (
+            "【人格与追问风格】\n"
+            "- 先承接候选人回答中的亮点(一句话肯定),再自然引出下一个问题;\n"
+            "- 多用开放式提问:「当时是怎么考虑的?」「能给我讲讲过程吗?」;\n"
+            "- 语气温暖、口语化,偶尔缓和气氛,但考察点不减少;"
+        ),
+    },
+    "pressure": {
+        "desc": "压力面试官「高老师」:资深评审,对简历亮点保持职业怀疑",
+        "rules": (
+            "【人格与追问风格】\n"
+            "- 对候选人声称的成果保持怀疑:要求给出数字、时间线、可验证细节;\n"
+            "- 可适度追问「这里面你个人贡献占多少?」「如果重来你会错在哪?」;\n"
+            "- 语气尖锐、直接,但严禁人身攻击、嘲讽或涉及性别/年龄/学历歧视;"
+        ),
+    },
+}
+
+DEFAULT_PERSONA = "pro"
+
+
+def build_persona(style: str | None) -> tuple[str, str]:
+    """按风格取 (人格描述, 人格规则);未知风格回退 pro。"""
+    p = PERSONAS.get(style or DEFAULT_PERSONA) or PERSONAS[DEFAULT_PERSONA]
+    return p["desc"], p["rules"]
 
 # 开场白模式(history 为空时使用):不判断质量,直接问好 + 抛第一个问题。
 OPENING_PROMPT = """面试刚开始,应聘者还没有发言。
@@ -77,8 +118,13 @@ JUDGE_PROMPT = """以下是本轮面试的对话记录(role 为 agent 的是面�
 请按系统提示中的输出协议,判断应聘者最新回答的质量并给出下一个问题。"""
 
 
-def build_system_prompt(dimensions: list[dict[str, Any]], job_title: str = "本岗位") -> str:
-    """组装系统 prompt(含考察大纲 + 面试规则 + 输出协议)。"""
+def build_system_prompt(
+    dimensions: list[dict[str, Any]],
+    job_title: str = "本岗位",
+    style: str | None = None,
+) -> str:
+    """组装系统 prompt(含面试官人格 + 考察大纲 + 面试规则 + 输出协议)。"""
+    persona_desc, persona_rules = build_persona(style)
     lines = []
     for i, dim in enumerate(dimensions or [], start=1):
         name = dim.get("name", f"维度{i}")
@@ -88,6 +134,8 @@ def build_system_prompt(dimensions: list[dict[str, Any]], job_title: str = "本�
         lines.append(f"{i}. {name}{wt} — 考察要点:{kw}")
     return SYSTEM_PROMPT.format(
         job_title=job_title,
+        persona_desc=persona_desc,
+        persona_rules=persona_rules,
         dimension_lines="\n".join(lines) if lines else "(暂无维度清单)",
         output_protocol=OUTPUT_PROTOCOL,
     )

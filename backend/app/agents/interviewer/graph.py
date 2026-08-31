@@ -123,8 +123,12 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
             logger.info("全场已达 %s 问上限,强制收尾", state["total_questions"])
             return {"phase": PHASE_CLOSING, "finished": True, "action": ACTION_CLOSING}
 
-        # 1) LLM 决策(开场白 / 判断)
-        system = build_system_prompt(state.get("dimensions") or [])
+        # 1) LLM 决策(开场白 / 判断),人格由 state.style 驱动
+        system = build_system_prompt(
+            state.get("dimensions") or [],
+            job_title=state.get("job_title") or "本岗位",
+            style=state.get("style"),
+        )
         user = build_user_prompt(state)
         try:
             output = judge(system, user) or {}
@@ -213,7 +217,7 @@ def build_graph(judge: Judge) -> Any:
 
 
 def llm_judge(system: str, user: str) -> dict[str, Any]:
-    """生产环境默认判断器:走 DeepSeek(OpenAI 兼容,强制 JSON 输出)。"""
+    """生产环境默认判断器:走千问 DashScope(OpenAI 兼容,强制 JSON 输出)。"""
     return chat_json(system, user, temperature=0.4)
 
 

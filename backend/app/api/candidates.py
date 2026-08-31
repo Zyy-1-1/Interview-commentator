@@ -1,4 +1,4 @@
-"""候选人接口:上传简历并触发解析。"""
+"""候选人接口:上传简历并触发解析 + 简历×岗位匹配分析。"""
 import json
 import logging
 import uuid
@@ -7,9 +7,10 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from ..agents.matcher import match_resume_to_job
 from ..agents.resume_parser import parse_resume_file
 from ..db import get_db
-from ..models import Candidate
+from ..models import Candidate, Job
 from ..schemas import CandidateOut
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,32 @@ async def upload_candidate(file: UploadFile, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(cand)
     return cand
+
+
+@router.get("/{candidate_id}/match/{job_id}")
+def match_to_job(candidate_id: int, job_id: int, db: Session = Depends(get_db)):
+    """面试前的人岗匹配分析(简历 × 岗位维度)。"""
+    cand = db.get(Candidate, candidate_id)
+    job = db.get(Job, job_id)
+    if not cand:
+        raise HTTPException(404, "候选人不存在")
+    if not job:
+        raise HTTPException(404, "岗位不存在")
+    dims = json.loads(job.dimensions or "[]")
+    if not dims:
+        raise HTTPException(422, "该岗位尚未完成 JD 分析,无法匹配")
+    parsed = json.loads(cand.parsed_resume) if cand.parsed_resume else None
+    try:
+        result = match_resume_to_job(
+            parsed_resume=parsed,
+            resume_text=cand.resume_text,
+            job_title=job.title,
+            jd_text=job.jd_text,
+            dimensions=dims,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"匹配分析失败: {e}") from e
+    return result
 
 
 @router.get("/{candidate_id}", response_model=CandidateOut)

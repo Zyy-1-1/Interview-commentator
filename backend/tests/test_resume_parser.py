@@ -22,8 +22,8 @@ def test_file_to_text_md():
 
 
 @pytest.mark.skipif(
-    not settings.deepseek_api_key,
-    reason="未配置 DEEPSEEK_API_KEY,跳过 LLM 相关测试",
+    not settings.dashscope_api_key,
+    reason="未配置 DASHSCOPE_API_KEY,跳过 LLM 相关测试",
 )
 def test_parse_resume_text_llm():
     """真实 Key 下:LLM 抽取结构化 JSON 含 basic/projects。"""

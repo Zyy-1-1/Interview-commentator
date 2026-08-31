@@ -19,11 +19,28 @@ async function request(path, options = {}) {
 }
 
 export const jobs = {
-  list: () => request('/jobs'),
-  create: (title, jdText) =>
+  // 大厅默认只看已上架;审核页传 status=pending / all
+  list: (status = 'approved') => request(`/jobs?status=${encodeURIComponent(status)}`),
+  get: (id) => request(`/jobs/${id}`),
+  create: (title, jdText, company, skipReview = false) =>
     request('/jobs', {
       method: 'POST',
-      body: JSON.stringify({ title, jd_text: jdText }),
+      body: JSON.stringify({
+        title,
+        jd_text: jdText,
+        company: company || null,
+        skip_review: skipReview,
+      }),
+    }),
+  review: (passphrase, jobId, approve, note = null) =>
+    request('/jobs/review', {
+      method: 'POST',
+      body: JSON.stringify({
+        passphrase,
+        job_id: jobId,
+        approve,
+        note,
+      }),
     }),
 }
 
@@ -42,14 +59,22 @@ export const candidates = {
     if (!resp.ok) throw new Error(data.detail || `上传失败(${resp.status})`)
     return data
   },
+  // 面试前的人岗匹配分析
+  match: (candidateId, jobId) =>
+    request(`/candidates/${candidateId}/match/${jobId}`),
 }
 
 export const interviews = {
   list: () => request('/interviews'),
-  create: (jobId, candidateId) =>
+  get: (id) => request(`/interviews/${id}`),
+  create: (jobId, candidateId, style = 'pro') =>
     request('/interviews', {
       method: 'POST',
-      body: JSON.stringify({ job_id: jobId, candidate_id: candidateId }),
+      body: JSON.stringify({
+        job_id: jobId,
+        candidate_id: candidateId,
+        style,
+      }),
     }),
   // 面试状态(进度)
   state: (id) => request(`/interviews/${id}/state`),

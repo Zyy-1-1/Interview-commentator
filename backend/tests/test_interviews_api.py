@@ -163,3 +163,65 @@ def test_full_interview_loop(test_db, monkeypatch):
     report = r.json()["report"]
     assert report["summary_score"] == 78
     assert report["suggestion"] == "建议进入二面"
+
+
+def test_style_flows_into_prompts(test_db, monkeypatch):
+    """创建时指定风格 → 持久化 → 注入首轮 system prompt(人格在语言层)。"""
+    ids = _seed(test_db)
+    judge, calls = make_sequence(
+        actions=[ACTION_CONTINUE_DIMENSION], next_qs=["请介绍一个压力场景"]
+    )
+    monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
+
+    client = TestClient(app)
+    r = client.post("/api/interviews", json={**ids, "style": "pressure"})
+    assert r.status_code == 200
+    iv_id = r.json()["id"]
+    assert r.json()["style"] == "pressure"
+
+    r = client.post(f"/api/interviews/{iv_id}/message", json={})
+    assert r.status_code == 200
+    assert "高老师" in calls[0]["system"]
+    assert "压力面试官" in calls[0]["system"]
+
+
+def test_invalid_style_rejected(test_db):
+    ids = _seed(test_db)
+    client = TestClient(app)
+    r = client.post("/api/interviews", json={**ids, "style": "robot"})
+    assert r.status_code == 422
+
+
+def test_candidate_match_endpoint(test_db, monkeypatch):
+    """GET /api/candidates/{id}/match/{job_id}:mock 匹配 agent,返回分数结构。"""
+    from app.api import candidates as candidates_api
+    from app.models import Candidate
+
+    ids = _seed(test_db)
+    fake = {
+        "overall": 68,
+        "summary": "基本匹配",
+        "dimension_scores": [{"name": "Python 编程", "resume_evidence": "e", "score": 7}],
+        "highlights": ["h"],
+        "gaps": ["g"],
+    }
+    monkeypatch.setattr(candidates_api, "match_resume_to_job", lambda **kw: fake)
+
+    with test_db() as s:
+        cand = Candidate(name="李四", parsed_resume=json.dumps({"basic": {"name": "李四"}}))
+        s.add(cand)
+        s.commit()
+        cand_id = cand.id
+
+    client = TestClient(app)
+    r = client.get(f"/api/candidates/{cand_id}/match/{ids['job_id']}")
+    assert r.status_code == 200, r.text
+    assert r.json()["overall"] == 68
+    # 无维度的岗位应 422
+    with test_db() as s:
+        bare = Job(title="裸岗位", jd_text="无分析")
+        s.add(bare)
+        s.commit()
+        bare_id = bare.id
+    r = client.get(f"/api/candidates/{cand_id}/match/{bare_id}")
+    assert r.status_code == 422
