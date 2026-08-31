@@ -4,7 +4,13 @@
       <div class="brand">面评家 · 演示后台</div>
       <div class="nav">
         <a class="goto" href="/admin/comparison">横向对比</a>
-        <a class="goto" href="/" @click.prevent>应聘者面试页</a>
+        <a
+          v-if="firstInterviewId"
+          class="goto"
+          :href="`/interview/${firstInterviewId}`"
+          target="_blank"
+          >应聘者面试页</a
+        >
       </div>
     </header>
 
@@ -90,7 +96,7 @@
 </template>
 
 <script>
-import { onMounted, reactive, toRefs } from 'vue'
+import { computed, onMounted, reactive, toRefs } from 'vue'
 import { candidates, interviews, jobs } from '../api'
 
 const STATUS_TEXT = {
@@ -123,6 +129,9 @@ export default {
     })
 
     const statusText = (s) => STATUS_TEXT[s] || s
+
+    // 面试列表按 id 倒序,第一场即为演示时想直接打开的面试
+    const firstInterviewId = computed(() => state.interviews[0]?.id ?? null)
 
     async function loadAll() {
       const [js, cs, ivs] = await Promise.all([
@@ -189,7 +198,7 @@ export default {
       }
     })
 
-    return { state, ...toRefs(state), statusText, createJob, onFileChange, createInterview }
+    return { state, ...toRefs(state), statusText, firstInterviewId, createJob, onFileChange, createInterview }
   },
 }
 </script>
