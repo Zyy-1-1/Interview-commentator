@@ -61,7 +61,7 @@ export const interviews = {
       method: 'POST',
       body: JSON.stringify({ reply: reply ?? null }),
     }),
-  // 多候选人横向对比(按岗位分组)
+  // 多应聘者横向对比(演示用,按岗位分组)
   comparison: () => request('/interviews/comparison'),
   // 评估报告
   report: (id) => request(`/interviews/${id}/report`),

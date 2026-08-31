@@ -279,10 +279,10 @@ INTERVIEWS = [
         "candidate": "张伟",
         "finished": True,
         "summary_score": 82,
-        "suggestion": "建议进入二面",
+        "suggestion": "与目标岗位匹配度较高,工程实战扎实,重点补强分布式/一致性细节即可",
         "strengths": ["异步编程理解深入,QPS 优化有量化结果", "数据库与缓存设计有实战经验", "系统设计表达结构化,能主动做兜底"],
         "risks": ["分库分表只讲了表拆分,索引与迁移细节未深入", "行为类回答较简短,团队协作细节待观察", "K8s 迁移尚未完全上线"],
-        "next_step": ["重点考察分布式事务与最终一致性落地", "追问一次完整事故排查的时间线与止损动作"],
+        "next_step": ["针对性练习:吃透分布式事务与最终一致性,可做一个小的订单对账项目", "针对性练习:把一次线上事故排查写成完整时间线,练 STAR 表达"],
         "rounds": [
             ("", "你好,我是本次面试的面试官,很高兴见到你。这场面试大约 15 分钟,会围绕你的岗位能力和软素质展开。我们先从你的自我介绍开始吧。", "", 0, "", ""),
             ("Python 编程", "你的简历里提到用 Python 做过接口性能优化,能具体讲讲当时怎么用 asyncio 提升 QPS 的吗?", "当时我们有个查询网关接口 QPS 只有 800,排查发现是串行调用三个外部接口。我改成 asyncio.gather 并发请求,配合信号量限流,并给超时重试加了指数退避,最终 QPS 提升到 3000 左右,还把 requests 换成了 aiohttp。", 9, "", "用 asyncio.gather 并发请求,最终 QPS 提升到 3000 左右"),
@@ -299,10 +299,10 @@ INTERVIEWS = [
         "candidate": "李娜",
         "finished": True,
         "summary_score": 72,
-        "suggestion": "建议进入二面",
+        "suggestion": "匹配度中等偏上,分析思路清晰,建议补强统计建模与业务验证能力",
         "strengths": ["SQL 基础扎实,取数链路清晰", "具备从指标到归因的完整分析思路", "表达有条理,结论先行"],
         "risks": ["建模环节样本量小,模型未经过线上验证", "业务归因偏经验,缺 A/B 或显著性检验", "可视化交互设计经验较少"],
-        "next_step": ["考察一次完整 A/B 实验设计与显著性判断", "追问分析结论如何推动业务落地与复盘"],
+        "next_step": ["针对性练习:独立设计一次完整 A/B 实验(含显著性检验)", "针对性练习:把一个分析结论做成能推动业务落地的完整故事"],
         "rounds": [
             ("", "你好,欢迎参加本次面试。我们大约 15 分钟,先请你做个自我介绍。", "", 0, "", ""),
             ("SQL 与数据处理", "你简历里写过月活漏斗分析,能说说数据是怎么清洗和加工的吗?", "我主要用 SQL 从埋点表取数,先用窗口函数去重会话,再按路径漏斗做 step 关联,异常值按设备维度剔除,最后落到宽表供可视化。", 8, "", "用 SQL 从埋点表取数,先用窗口函数去重会话"),
@@ -318,10 +318,10 @@ INTERVIEWS = [
         "candidate": "王强",
         "finished": True,
         "summary_score": 61,
-        "suggestion": "待定观察",
+        "suggestion": "匹配度中等,框架使用熟练,但 JS 底层与工程化是主要提升点",
         "strengths": ["框架使用熟练,能落地项目", "具备基础性能优化意识"],
         "risks": ["JS 底层概念停留在记忆层,缺工程佐证", "沟通应对偏被动,缺少主动推动案例", "项目规模偏小,缺复杂交互与性能压力场景"],
-        "next_step": ["考察手写响应式 / 虚拟 DOM diff 理解", "给一个小型组件需求考察工程化设计"],
+        "next_step": ["针对性练习:手写一遍响应式原理与虚拟 DOM diff,理解底层", "针对性练习:独立完成一个小型复杂交互组件,关注性能与工程化"],
         "rounds": [
             ("", "你好,欢迎参加面试。大约 15 分钟,先做个自我介绍吧。", "", 0, "", ""),
             ("Vue3 框架", "你用 Vue3 开发过哪些项目?组件之间状态是怎么管理的?", "做过一个后台管理系统,用的是 Vue3 + Pinia,主要管理用户和权限模块,组件复用用插槽和 props,复杂表单会用动态组件。", 7, "", "用的是 Vue3 + Pinia,组件复用用插槽和 props"),
@@ -406,7 +406,7 @@ def _build_report(dimensions, rounds, summary_score, suggestion, strengths, risk
         scores.setdefault(dim, quality)
         evidence.setdefault(dim, [])
         if ev:
-            evidence[dim].append(f"候选人原话:{ev}")
+            evidence[dim].append(f"应聘者原话:{ev}")
     report_dims = [
         {
             "name": d["name"],
@@ -543,7 +543,7 @@ def main():
         print(f"   - 岗位 {len(JOBS)} 个")
         print(f"   - 候选人 {total_candidates} 人")
         print(f"   - 面试 {created} 场(已完成 3 + 进行中 2,消息共 {total_messages} 条)")
-        print(f"   启动后端后,HR 后台 http://localhost:5173/admin 即可查看。")
+        print(f"   启动后端后,演示后台 http://localhost:5173/admin 即可查看。")
     finally:
         db.close()
 

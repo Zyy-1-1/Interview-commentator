@@ -93,7 +93,7 @@ class InterviewOut(BaseModel):
 
 
 class InterviewListItem(BaseModel):
-    """HR 后台面试列表项(含岗位/候选人名称与报告总分)。"""
+    """演示后台面试列表项(含岗位/应聘者名称与报告总分)。"""
     id: int
     status: str
     job_title: str

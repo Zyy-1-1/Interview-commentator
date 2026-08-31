@@ -1,29 +1,29 @@
-# 面评家 · AI 结构化面试 Agent
+# 面评家 · AI 模拟面试官
 
-> HR 端初筛工具:HR 上传 JD / 简历 → 生成免登录面试链接 → 候选人文字答题 → AI 动态追问 → 收尾自动评估 → 标准化报告 + 多候选人横向对比。
+> 面向**应聘者**的 AI 模拟面试官:选择目标岗位(或粘贴 JD)+ 上传自己的简历 → 免登录进入模拟面试 → AI 按 JD 拆成能力维度动态追问 → 收尾自动评估 → 输出个人竞争力报告(雷达图 + 原话证据 + 强项短板 + 提升建议)。
 >
-> 核心叙事(答辩):**自研 LangGraph 状态机 + 动态追问 + 证据引用 + 标准化报告**。
+> 核心叙事(答辩):**自研 LangGraph 状态机 + 动态追问 + 证据引用 + 标准化个人评估报告**。
 
 ---
 
 ## 一、产品闭环
 
 ```
-HR 上传 JD / 简历
+应聘者选择目标岗位 / 粘贴 JD
       │  JD 分析 Agent → 考察维度清单(带权重)
       ▼
-发起面试 → 生成免登录链接 /interview/{id}
+上传自己的简历(可选,自动解析出经历/技能)
       │
-候选人 文字答题 ──┐
+发起模拟面试 → 生成免登录链接 /interview/{id}
+      │
+应聘者 文字答题 ──┐
       │           │ 面试官 Agent(LangGraph 状态机)
       ▼           │  · 判断回答质量 → 追问 / 推进下一维度
 动态追问 ◄────────┘  · 服务端兜底:action 校验 + 轮次上限
       │
-收尾 → 评估 Agent 一次调用 → 报告 JSON
+收尾 → 评估 Agent 一次调用 → 个人竞争力报告 JSON
       ▼
-HR 查看报告(雷达图 + 原话证据 + 亮点/风险/二面建议)
-      ▼
-多候选人横向对比(按岗位分组,深色高亮最高分)
+应聘者查看报告(雷达图 + 原话证据 + 强项短板 + 提升建议)
 ```
 
 ## 二、技术栈
@@ -42,8 +42,8 @@ HR 查看报告(雷达图 + 原话证据 + 亮点/风险/二面建议)
 
 ```
 ┌──────────── 前端 (Vue3, :5173) ────────────┐
-│  candidate/  候选人面试页(聊天 UI + 进度)    │
-│  admin/      HR 后台 + 报告页 + 横向对比页    │
+│  candidate/  应聘者面试页(聊天 UI + 进度)    │
+│  admin/      演示后台(岗位库/简历库/面试库)   │
 └───────────────────┬─────────────────────────┘
                     │ /api(dev 代理 → :8000)
 ┌───────────────────▼─────────────────────────┐
@@ -51,7 +51,7 @@ HR 查看报告(雷达图 + 原话证据 + 亮点/风险/二面建议)
 │  api/    jobs · candidates · interviews · report │
 │  agents/ resume_parser → jd_analyzer        │
 │          interviewer/ (LangGraph 状态机)      │
-│          evaluator (一次调用出报告)            │
+│          evaluator (一次调用出个人评估报告)     │
 │  llm.py DeepSeek client(chat_text / chat_json)│
 │  SQLite + SQLAlchemy(4 张表)                  │
 └──────────────────────────────────────────────┘
@@ -82,8 +82,8 @@ Interview-commentator/
 ├── frontend/
 │   ├── vite.config.js        # :5173,/api 代理到 :8000
 │   └── src/
-│       ├── candidate/        # 候选人面试页
-│       ├── admin/            # HR 后台 + 报告页 + 横向对比页
+│       ├── candidate/        # 应聘者面试页
+│       ├── admin/            # 演示后台(岗位库/简历库/面试库 + 报告页)
 │       ├── api/index.js      # 接口封装
 │       └── router/index.js
 └── scripts/
@@ -107,9 +107,9 @@ npm install
 npm run dev                        # http://localhost:5173
 ```
 
-- HR 后台:`http://localhost:5173/admin`(创建岗位 → 上传简历 → 发起面试 → 查看报告)
-- 候选人链接:后台发起面试后生成 `/interview/{id}`,免登录直接答题
-- 横向对比:`http://localhost:5173/admin/comparison`
+- 应聘者面试页:发起模拟面试后生成 `/interview/{id}`,免登录直接答题
+- 演示后台:`http://localhost:5173/admin`(岗位库 / 简历库 / 面试库 / 查看个人报告)
+- 横向对比:`http://localhost:5173/admin/comparison`(演示用内部功能)
 
 > Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程。
 
@@ -141,18 +141,18 @@ docker compose up -d --build
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/jobs` | 创建岗位(自动 JD 分析出维度) |
+| POST | `/api/jobs` | 创建目标岗位(自动 JD 分析出考察维度) |
 | GET | `/api/jobs` | 岗位列表 |
-| POST | `/api/candidates` | 上传简历(multipart,自动解析) |
-| GET | `/api/candidates` | 候选人列表 |
-| POST | `/api/interviews` | 发起面试 |
-| GET | `/api/interviews` | 面试列表(含岗位/候选人/总分) |
-| POST | `/api/interviews/{id}/message` | 候选人答题闭环(空 reply = 开场白) |
+| POST | `/api/candidates` | 上传应聘者简历(multipart,自动解析) |
+| GET | `/api/candidates` | 应聘者列表 |
+| POST | `/api/interviews` | 发起模拟面试 |
+| GET | `/api/interviews` | 面试列表(含岗位/应聘者/总分) |
+| POST | `/api/interviews/{id}/message` | 应聘者答题闭环(空 reply = 开场白) |
 | GET | `/api/interviews/{id}/messages` | 逐轮消息(回放/审计) |
 | GET | `/api/interviews/{id}/state` | 会话进度快照 |
 | POST | `/api/interviews/{id}/evaluate` | 手动触发评估(收尾后已自动) |
-| GET | `/api/interviews/{id}/report` | 评估报告 |
-| GET | `/api/interviews/comparison` | 多候选人横向对比(按岗位分组) |
+| GET | `/api/interviews/{id}/report` | 个人竞争力评估报告 |
+| GET | `/api/interviews/comparison` | 多应聘者横向对比(演示用,按岗位分组) |
 
 ## 八、测试
 

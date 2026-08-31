@@ -1,8 +1,8 @@
 <template>
   <div class="report">
     <header class="topbar">
-      <div class="brand">面评家 · 面试报告 #{{ id }}</div>
-      <a class="back" href="/admin">← 返回后台</a>
+      <div class="brand">面评家 · 竞争力报告 #{{ id }}</div>
+      <a class="back" href="/admin">← 返回演示后台</a>
     </header>
 
     <div v-if="state.error" class="empty">
@@ -54,17 +54,17 @@
           </ul>
         </section>
 
-        <!-- 风险 -->
+        <!-- 待改进短板 -->
         <section class="panel">
-          <h2>风险与关注点</h2>
+          <h2>待改进短板</h2>
           <ul>
             <li v-for="(r, i) in state.report.risks" :key="i">{{ r }}</li>
           </ul>
         </section>
 
-        <!-- 二面建议 -->
+        <!-- 提升建议 -->
         <section class="panel">
-          <h2>二面建议</h2>
+          <h2>提升建议</h2>
           <ul>
             <li v-for="(q, i) in state.report.next_step_questions" :key="i">{{ q }}</li>
           </ul>

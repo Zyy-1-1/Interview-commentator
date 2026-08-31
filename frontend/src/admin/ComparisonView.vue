@@ -1,23 +1,23 @@
 <template>
   <div class="comparison">
     <header class="topbar">
-      <div class="brand">面评家 · 候选人横向对比</div>
-      <a class="back" href="/admin">← 返回后台</a>
+      <div class="brand">面评家 · 横向对比</div>
+      <a class="back" href="/admin">← 返回演示后台</a>
     </header>
 
     <div v-if="state.error" class="empty">{{ state.error }}</div>
     <div v-else-if="state.groups.length" class="content">
-      <p class="hint">按岗位分组,展示已完成面试的候选人在各考察维度的得分(深色 = 该列最高分)。</p>
+      <p class="hint">按岗位分组,展示已完成面试的应聘者在各考察维度的得分(深色 = 该列最高分)。</p>
 
       <section v-for="g in state.groups" :key="g.job_id" class="panel">
         <h2>#{{ g.job_id }} {{ g.job_title }}</h2>
         <table>
           <thead>
             <tr>
-              <th>候选人</th>
+              <th>应聘者</th>
               <th v-for="d in g.dimensions" :key="d">{{ d }}</th>
               <th>总分</th>
-              <th>建议</th>
+              <th>竞争力评价</th>
               <th>操作</th>
             </tr>
           </thead>

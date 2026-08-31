@@ -42,7 +42,7 @@ action 只能取以下枚举值之一,含义:
 - 一个维度内最多追问 3 次,追问到上限时即便回答一般也要 NEXT_DIMENSION;
 - next_question 必须围绕候选人上一句回答追问,不要重复问已问过的问题。"""
 
-SYSTEM_PROMPT = """你是{job_title}方向的高级面试官,正在对候选人进行首轮结构化面试。
+SYSTEM_PROMPT = """你是{job_title}方向的高级面试官,正在对应聘者进行一轮模拟结构化面试。
 【考察大纲】(来自 JD 分析,weight 是权重)
 {dimension_lines}
 
@@ -56,7 +56,7 @@ SYSTEM_PROMPT = """你是{job_title}方向的高级面试官,正在对候选人�
 {output_protocol}"""
 
 # 开场白模式(history 为空时使用):不判断质量,直接问好 + 抛第一个问题。
-OPENING_PROMPT = """面试刚开始,候选人还没有发言。
+OPENING_PROMPT = """面试刚开始,应聘者还没有发言。
 请你用简洁专业的中文做开场白:简短问好、说明面试流程(约 15 分钟、会围绕几个能力维度提问),
 然后直接抛出第一个问题(针对当前考察维度:【{dimension_name}】,考察要点:【{dimension_keywords}】)。
 输出 JSON:{{
@@ -67,14 +67,14 @@ OPENING_PROMPT = """面试刚开始,候选人还没有发言。
 }}"""
 
 # 常规判断模式:给出对话历史 + 最新回答,要求 LLM 判断并出下一问。
-JUDGE_PROMPT = """以下是本轮面试的对话记录(role 为 agent 的是面试官的问题,为 candidate 的是候选人回答):
+JUDGE_PROMPT = """以下是本轮面试的对话记录(role 为 agent 的是面试官的问题,为 candidate 的是应聘者回答):
 
 {history_lines}
 
-候选人最新回答(角色 candidate):
+应聘者最新回答(角色 candidate):
 {last_reply}
 
-请按系统提示中的输出协议,判断候选人最新回答的质量并给出下一个问题。"""
+请按系统提示中的输出协议,判断应聘者最新回答的质量并给出下一个问题。"""
 
 
 def build_system_prompt(dimensions: list[dict[str, Any]], job_title: str = "本岗位") -> str:

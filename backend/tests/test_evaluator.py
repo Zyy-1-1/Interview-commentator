@@ -45,7 +45,7 @@ def test_evaluate_returns_report(monkeypatch):
     assert report == FAKE_REPORT
     # user prompt 应包含岗位与面试记录标签
     assert "Python 后端" in calls["user"]
-    assert "候选人" in calls["user"]
+    assert "应聘者" in calls["user"]
 
 
 def test_evaluate_prompt_contains_original_words(monkeypatch):

@@ -1,10 +1,10 @@
 <template>
   <div class="dashboard">
     <header class="topbar">
-      <div class="brand">面评家 · HR 后台</div>
+      <div class="brand">面评家 · 演示后台</div>
       <div class="nav">
         <a class="goto" href="/admin/comparison">横向对比</a>
-        <a class="goto" href="/" @click.prevent>候选人面试页</a>
+        <a class="goto" href="/" @click.prevent>应聘者面试页</a>
       </div>
     </header>
 
@@ -25,30 +25,30 @@
         </button>
         <p v-if="lastJob" class="ok">岗位「{{ lastJob.title }}」已创建,解析出 {{ lastJob.dimCount }} 个考察维度</p>
 
-        <h2 class="mt">上传候选人简历</h2>
+        <h2 class="mt">上传应聘者简历</h2>
         <input type="file" accept=".pdf,.docx,.doc,.txt,.md" @change="onFileChange" />
         <p v-if="lastCandidate" class="ok">
           已解析简历:{{ lastCandidate.name || '(未识别姓名)' }}
         </p>
 
-        <h2 class="mt">发起面试</h2>
-        <label>选择岗位</label>
+        <h2 class="mt">发起模拟面试</h2>
+        <label>选择目标岗位</label>
         <select v-model="selJob" :disabled="busy">
           <option v-for="j in jobs" :key="j.id" :value="j.id">
             #{{ j.id }} {{ j.title }}{{ j.dimensions ? '' : '(未完成分析)' }}
           </option>
         </select>
-        <label>选择候选人</label>
+        <label>选择应聘者</label>
         <select v-model="selCandidate" :disabled="busy">
           <option v-for="c in candidates" :key="c.id" :value="c.id">
             #{{ c.id }} {{ c.name || '(未命名)' }}
           </option>
         </select>
         <button class="primary" :disabled="!selJob || !selCandidate || busy" @click="createInterview">
-          发起面试
+          发起模拟面试
         </button>
         <p v-if="interviewLink" class="ok">
-          面试已创建(<b>#{{ newInterviewId }}</b>),候选人链接:
+          模拟面试已创建(<b>#{{ newInterviewId }}</b>),面试链接:
           <a :href="interviewLink" target="_blank">{{ interviewLink }}</a>
         </p>
 
@@ -63,7 +63,7 @@
             <tr>
               <th>ID</th>
               <th>岗位</th>
-              <th>候选人</th>
+              <th>应聘者</th>
               <th>状态</th>
               <th>总分</th>
               <th>操作</th>
@@ -78,7 +78,7 @@
               <td>{{ iv.summary_score != null ? iv.summary_score : '—' }}</td>
               <td>
                 <a v-if="iv.status === 'finished'" :href="`/admin/interview/${iv.id}`">查看报告</a>
-                <a v-else :href="`/interview/${iv.id}`" target="_blank">候选人链接</a>
+                <a v-else :href="`/interview/${iv.id}`" target="_blank">面试链接</a>
               </td>
             </tr>
           </tbody>
@@ -90,7 +90,7 @@
 </template>
 
 <script>
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, toRefs } from 'vue'
 import { candidates, interviews, jobs } from '../api'
 
 const STATUS_TEXT = {
@@ -98,7 +98,7 @@ const STATUS_TEXT = {
   opening: '开场中',
   probing: '考察中',
   behavioral: '行为面',
-  candidate_qa: '候选人提问',
+  candidate_qa: '应聘者提问',
   closing: '收尾',
   finished: '已完成',
   timeout: '超时',
@@ -189,7 +189,7 @@ export default {
       }
     })
 
-    return { state, statusText, createJob, onFileChange, createInterview }
+    return { state, ...toRefs(state), statusText, createJob, onFileChange, createInterview }
   },
 }
 </script>

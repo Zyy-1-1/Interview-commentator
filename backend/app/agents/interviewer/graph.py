@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 Judge = Callable[[str, str], dict[str, Any]]
 
 DEFAULT_CLOSING = (
-    "本轮面试到这里就结束了。感谢你的时间与坦诚,我们会尽快整理反馈,祝你一切顺利。"
+    "本轮模拟面试到这里就结束了。感谢你的参与!你的个人竞争力评估报告已生成,可以查看每个维度的得分与提升建议,祝你求职顺利。"
 )
 
 

@@ -23,7 +23,7 @@
           <div class="bubble typing">面试官正在思考…</div>
         </div>
         <div v-if="state.finished" class="done">
-          面试已结束,感谢你的时间与坦诚。结果将由 HR 反馈。
+          面试已结束,感谢你的参与!你的个人竞争力报告已生成,可返回查看评估结果。
         </div>
       </template>
     </main>
