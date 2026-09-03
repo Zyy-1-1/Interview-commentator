@@ -53,9 +53,14 @@ def _normalize_assess(output: dict[str, Any]) -> dict[str, Any]:
     assess = output.get("assess")
     if not isinstance(assess, dict):
         return _fallback_assess()
+    try:
+        quality = float(assess.get("quality", 5))
+    except (TypeError, ValueError):
+        quality = 5.0
+    quality = max(0.0, min(10.0, quality))
     return {
         "answered": bool(assess.get("answered", True)),
-        "quality": int(assess.get("quality", 5) or 0),
+        "quality": int(quality) if quality.is_integer() else quality,
         "issue": str(assess.get("issue", "") or ""),
         "evidence": str(assess.get("evidence", "") or ""),
     }
@@ -69,17 +74,79 @@ def _normalize_action(action: Any) -> str:
     return ACTION_CONTINUE_DIMENSION
 
 
+def _advance_action(state: InterviewState) -> str:
+    """按服务端维度顺序推进一步，最后一个维度后固定进入候选人提问。"""
+    dims = state.get("dimensions") or []
+    idx = state.get("dim_idx", 0)
+    if idx + 1 >= len(dims):
+        return ACTION_GO_CANDIDATE_QA
+    if dims[idx + 1].get("type") == "soft" and state.get("phase") != PHASE_BEHAVIORAL:
+        return ACTION_GO_BEHAVIORAL
+    return ACTION_NEXT_DIMENSION
+
+
+def _guard_transition(state: InterviewState, action: str) -> str:
+    """限制 LLM 只能顺序推进，不能跳过维度或从考察阶段直接结束。"""
+    phase = state.get("phase")
+    dims = state.get("dimensions") or []
+    idx = state.get("dim_idx", 0)
+
+    if phase == PHASE_CANDIDATE_QA:
+        if action != ACTION_CLOSING:
+            logger.warning("候选人提问环节返回 %s,服务端强制收尾", action)
+        return ACTION_CLOSING
+    if action == ACTION_CLOSING:
+        guarded = _advance_action(state)
+        logger.warning("仍有流程未完成,拒绝提前收尾并改为 %s", guarded)
+        return guarded
+    if action == ACTION_GO_CANDIDATE_QA and idx < len(dims) - 1:
+        guarded = _advance_action(state)
+        logger.warning("仍有维度未完成,拒绝提前进入候选人提问并改为 %s", guarded)
+        return guarded
+    if action == ACTION_GO_BEHAVIORAL:
+        soft_idx = next(
+            (i for i, dim in enumerate(dims) if dim.get("type") == "soft"),
+            None,
+        )
+        if soft_idx is None or idx >= soft_idx or idx + 1 < soft_idx:
+            guarded = _advance_action(state)
+            logger.warning("行为面试跳转位置非法,改为 %s", guarded)
+            return guarded
+    if action == ACTION_NEXT_DIMENSION:
+        return _advance_action(state)
+    return action
+
+
+def _transition_question(state: InterviewState, action: str) -> str:
+    """服务端纠正流程时提供与目标阶段一致的问题，避免 action 与文案打架。"""
+    if action == ACTION_GO_CANDIDATE_QA:
+        return "我的考察问题暂时到这里。你对岗位、团队或工作内容有什么想了解的吗?"
+    dims = state.get("dimensions") or []
+    if action == ACTION_GO_BEHAVIORAL:
+        target_idx = next(
+            (i for i, dim in enumerate(dims) if dim.get("type") == "soft"),
+            len(dims),
+        )
+    else:
+        target_idx = state.get("dim_idx", 0) + 1
+    if target_idx >= len(dims):
+        return DEFAULT_QUESTION
+    target = dims[target_idx]
+    name = target.get("name") or "下一项能力"
+    if target.get("type") == "soft":
+        return f"接下来聊聊「{name}」。请用一个具体案例说明当时的情境、你的行动和结果。"
+    return f"接下来考察「{name}」。请结合一个具体经历说明你的做法和结果。"
+
+
 def _fallback_output(state: InterviewState) -> dict[str, Any]:
     """LLM 调用失败时的兜底输出(不中断面试流程)。"""
     if not state.get("history"):
         return {
-            "thinking": "LLM 失败兜底开场",
             "assess": _fallback_assess(),
             "next_question": "你好,我是本次面试的面试官。面试大约 15 分钟,我们先从你的自我介绍开始吧。",
             "action": ACTION_CONTINUE_DIMENSION,
         }
     return {
-        "thinking": "LLM 失败兜底追问",
         "assess": _fallback_assess(),
         "next_question": DEFAULT_QUESTION,
         "action": ACTION_CONTINUE_DIMENSION,
@@ -90,20 +157,16 @@ def _fallback_output(state: InterviewState) -> dict[str, Any]:
 def _apply_action(state: InterviewState, action: str) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     dims = state.get("dimensions") or []
-    dim = current_dimension(state)
-    dim_name = dim.get("name", "") if dim else ""
     counts = dict(state.get("dim_question_count") or {})
 
     if action == ACTION_NEXT_DIMENSION:
-        # 推进到下一维度,重置当前维度计数
-        counts.pop(dim_name, None)
+        # 推进到下一维度；历史维度计数保留用于进度审计。
         updates["dim_idx"] = state.get("dim_idx", 0) + 1
     elif action == ACTION_GO_BEHAVIORAL:
         # 跳到第一个软素质维度
         soft_idx = next((i for i, d in enumerate(dims) if d.get("type") == "soft"), len(dims))
         updates["phase"] = PHASE_BEHAVIORAL
         updates["dim_idx"] = soft_idx
-        counts.pop(dim_name, None)
     elif action == ACTION_GO_CANDIDATE_QA:
         updates["phase"] = PHASE_CANDIDATE_QA
     elif action == ACTION_CLOSING:
@@ -147,17 +210,25 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
             }
 
         # 3) 正常轮:校验 action + 单维度追问上限
-        action = _normalize_action(output.get("action"))
+        requested_action = _normalize_action(output.get("action"))
+        action = requested_action
         dim = current_dimension(state)
         dim_name = dim.get("name", "") if dim else ""
         asked = state.get("dim_question_count", {}).get(dim_name, 0)
         if action == ACTION_CONTINUE_DIMENSION and asked >= state.get("max_q_per_dim", 3):
             logger.info("维度「%s」已达 %s 问上限,强制推进到下一维度", dim_name, asked)
-            action = ACTION_NEXT_DIMENSION
+            action = _advance_action(state)
+        action = _guard_transition(state, action)
 
         # 4) 应用 action,推进状态
         updates = _apply_action(state, action)
         next_question = output.get("next_question") or DEFAULT_QUESTION
+        if action != requested_action and state.get("phase") != PHASE_CANDIDATE_QA:
+            next_question = _transition_question(state, action)
+        if action == ACTION_CLOSING and state.get("phase") == PHASE_CANDIDATE_QA:
+            closing_message = f"{next_question}\n\n{DEFAULT_CLOSING}"
+            updates["closing_message"] = closing_message
+            next_question = closing_message
         history = list(state.get("history") or [])
         reply = (state.get("candidate_reply") or "").strip()
         if reply:
@@ -175,12 +246,17 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
                 "finished": bool(updates.get("finished", False)),
             }
         )
-        # 本轮这一问记入"当前(推进后)维度"的计数
+        # 只有新的考察问题才记入维度；候选人提问/收尾不归属能力维度。
         counts = dict(updates.get("dim_question_count") or state.get("dim_question_count") or {})
-        new_dim = current_dimension({**state, **updates})
-        new_name = new_dim.get("name", "") if new_dim else ""
-        if new_name:
-            counts[new_name] = counts.get(new_name, 0) + 1
+        if action in {
+            ACTION_CONTINUE_DIMENSION,
+            ACTION_NEXT_DIMENSION,
+            ACTION_GO_BEHAVIORAL,
+        }:
+            new_dim = current_dimension({**state, **updates})
+            new_name = new_dim.get("name", "") if new_dim else ""
+            if new_name:
+                counts[new_name] = counts.get(new_name, 0) + 1
         updates["dim_question_count"] = counts
         return updates
 
@@ -189,7 +265,7 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
 
 def _closing_node(state: InterviewState) -> dict[str, Any]:
     return {
-        "closing_message": DEFAULT_CLOSING,
+        "closing_message": state.get("closing_message") or DEFAULT_CLOSING,
         "phase": PHASE_CLOSING,
         "finished": True,
     }
@@ -228,7 +304,11 @@ def build_llm_graph() -> Any:
 
 def compute_progress(state: InterviewState) -> dict[str, Any]:
     """供前端展示的进度信息(面试当前维度/已问次数/上限)。"""
-    dim = current_dimension(state)
+    dim = (
+        None
+        if state.get("phase") in {PHASE_CANDIDATE_QA, PHASE_CLOSING}
+        else current_dimension(state)
+    )
     name = dim.get("name", "") if dim else ""
     return {
         "phase": state.get("phase", ""),

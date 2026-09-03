@@ -3,6 +3,7 @@
 - 文件→文本(markitdown):离线可测,必测;
 - LLM 结构化抽取:需要真实 API Key,无 Key 自动跳过。
 """
+import os
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,10 @@ def test_file_to_text_md():
     assert "FastAPI" in text
 
 
+@pytest.mark.llm_live
 @pytest.mark.skipif(
-    not settings.dashscope_api_key,
-    reason="未配置 DASHSCOPE_API_KEY,跳过 LLM 相关测试",
+    os.getenv("RUN_LLM_TESTS") != "1" or not settings.dashscope_api_key,
+    reason="仅在 RUN_LLM_TESTS=1 且配置 Key 时运行真实 LLM 测试",
 )
 def test_parse_resume_text_llm():
     """真实 Key 下:LLM 抽取结构化 JSON 含 basic/projects。"""

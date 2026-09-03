@@ -7,7 +7,10 @@ from app.agents.interviewer.graph import build_graph
 from app.agents.interviewer.state import (
     ACTION_CLOSING,
     ACTION_CONTINUE_DIMENSION,
+    ACTION_GO_BEHAVIORAL,
     ACTION_NEXT_DIMENSION,
+    PHASE_BEHAVIORAL,
+    PHASE_CANDIDATE_QA,
     PHASE_CLOSING,
     PHASE_PROBING,
     initial_state,
@@ -75,8 +78,8 @@ def test_continue_dimension():
     assert result["history"][-1] == {"role": "agent", "text": "下一个问题"}
 
 
-def test_next_dimension():
-    """LLM 选择推进到下一维度 → dim_idx+1,计数归属新维度。"""
+def test_next_dimension_enters_behavioral_phase():
+    """下一维度是软素质时,服务端同步切换到行为面试阶段。"""
     judge, _ = make_judge(action=ACTION_NEXT_DIMENSION)
     app = build_graph(judge)
     state = new_state()
@@ -85,7 +88,8 @@ def test_next_dimension():
     result = app.invoke(state)
 
     assert result["dim_idx"] == 1
-    assert result["action"] == ACTION_NEXT_DIMENSION
+    assert result["action"] == ACTION_GO_BEHAVIORAL
+    assert result["phase"] == PHASE_BEHAVIORAL
     assert result["dim_question_count"] == {"沟通表达": 1}  # 推进后的新维度计入本轮这一问
     assert result["total_questions"] == 1
 
@@ -114,7 +118,7 @@ def test_dim_question_cap_force_next():
     state["dim_question_count"] = {"Python 编程": 3}  # 已问满 3 次
     result = app.invoke(state)
 
-    assert result["action"] == ACTION_NEXT_DIMENSION
+    assert result["action"] == ACTION_GO_BEHAVIORAL
     assert result["dim_idx"] == 1
 
 
@@ -140,6 +144,8 @@ def test_closing():
     app = build_graph(judge)
     state = new_state()
     state["history"] = [{"role": "agent", "text": "?"}]
+    state["phase"] = PHASE_CANDIDATE_QA
+    state["dim_idx"] = 1
     state["candidate_reply"] = "没有其他想补充的"
     result = app.invoke(state)
 
@@ -147,3 +153,30 @@ def test_closing():
     assert result["finished"] is True
     assert result["action"] == ACTION_CLOSING
     assert result["closing_message"]
+
+
+def test_early_closing_is_rejected_by_server():
+    judge, _ = make_judge(action=ACTION_CLOSING)
+    app = build_graph(judge)
+    state = new_state()
+    state["history"] = [{"role": "agent", "text": "?"}]
+    state["candidate_reply"] = "想提前结束"
+    result = app.invoke(state)
+
+    assert result["finished"] is False
+    assert result["action"] == ACTION_GO_BEHAVIORAL
+    assert result["phase"] == PHASE_BEHAVIORAL
+    assert "沟通表达" in result["history"][-1]["text"]
+
+
+def test_assess_quality_is_robust_and_clamped():
+    judge, _ = make_judge(quality=99)
+    app = build_graph(judge)
+    state = new_state()
+    state["history"] = [{"role": "agent", "text": "?"}]
+    state["candidate_reply"] = "回答"
+    assert app.invoke(state)["assess"]["quality"] == 10
+
+    judge, _ = make_judge(quality="优秀")
+    app = build_graph(judge)
+    assert app.invoke(state)["assess"]["quality"] == 5

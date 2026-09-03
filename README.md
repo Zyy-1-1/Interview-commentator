@@ -1,6 +1,6 @@
 # 面评家 · AI 模拟面试官
 
-> 面向**应聘者**的自助闭环:打开首页就是岗位大厅 → 选岗位、上传简历(PDF/Word/MD/TXT)→ 先看「人岗匹配分析」再决定要不要面 → 挑一位数字人面试官风格(严谨技术官 / 亲和 HR / 压力面)→ 语音提问、文字答题的模拟面试 → 收尾自动输出**个人竞争力报告**(雷达图 + 原话证据 + 强项短板 + 提升建议)。
+> 面向**应聘者**的自助闭环:打开首页就是岗位大厅 → 选岗位、上传简历(PDF/DOCX/MD/TXT,最大 10 MB)→ 先看「人岗匹配分析」再决定要不要面 → 挑一位数字人面试官风格(严谨技术官 / 亲和 HR / 压力面)→ 语音提问、文字答题的模拟面试 → 收尾自动输出**个人竞争力报告**(雷达图 + 原话证据 + 强项短板 + 提升建议)。
 >
 > 岗位侧配套治理:任何人可自助发布招聘信息,官方口令审核通过后才能上架大厅。
 >
@@ -14,7 +14,7 @@
 岗位大厅(首页,仅展示审核通过的岗位)
       │  选一个岗位 → /apply/{jobId}
       ▼
-上传简历(PDF/Word/MD/TXT)
+上传简历(PDF/DOCX/MD/TXT,最大 10 MB)
       │  简历解析 Agent(pdfminer/python-docx → LLM 结构化)
       │  匹配 Agent:简历 × 岗位维度 → 匹配分 + 雷达 + 亮点/缺口
       ▼
@@ -77,14 +77,19 @@
 
 **可审计性**:逐轮消息(`interview_messages`)留痕,含该轮质量判断(assess),报告证据引用应聘者**原话**,可复核。
 
+**一致性保护**:客户端每次答题携带 `request_id`,网络重试会回放同一结果;数据库使用乐观锁并把状态快照与双侧消息放在同一事务中,避免重复推进或部分写入。
+
+**匿名隐私凭证**:上传简历后服务端只返回一次随机访问令牌,数据库仅保存其 SHA-256;匹配、创建面试、答题、消息和报告接口均需 `X-Candidate-Token`。前端把令牌保存在当前浏览器会话中,无需注册账号。
+
 ## 四、仓库结构
 
 ```
 Interview-commentator/
+├── .env.example               # 环境变量样例(复制为 backend/.env)
 ├── docker-compose.yml        # 一键起后端(前端可追加服务)
 ├── start_all.bat             # Windows 一键启动前后端
 ├── backend/
-│   ├── .env.example          # 环境变量样例(复制为 .env 填 Key)
+│   ├── requirements.txt / requirements-dev.txt
 │   ├── app/
 │   │   ├── main.py           # FastAPI 入口
 │   │   ├── config.py / db.py(补列迁移)/ models.py / schemas.py / llm.py
@@ -107,7 +112,19 @@ Interview-commentator/
 
 ## 五、快速开始
 
-### 1. 配置密钥
+### 1. 创建 Miniconda 环境并安装依赖
+
+```powershell
+conda create -n interview-commentator python=3.11 -y
+conda activate interview-commentator
+pip install -r backend/requirements-dev.txt
+
+cd frontend
+npm ci
+cd ..
+```
+
+### 2. 配置密钥
 
 ```bash
 copy .env.example backend\.env     # 或 cp .env.example backend/.env
@@ -116,19 +133,19 @@ copy .env.example backend\.env     # 或 cp .env.example backend/.env
 #   REVIEW_PASSPHRASE=自定口令     (/review 审核页使用)
 ```
 
-> ⚠️ Windows 坑:若「系统环境变量」里已有同名 `DASHSCOPE_API_KEY`,它会**覆盖 .env**(pydantic-settings 环境变量优先级更高),请在「编辑系统环境变量」中删除旧值。
+> 显式环境变量优先于 `.env`,便于 CI/Docker 临时覆盖配置。若本机已有同名系统变量,可在当前 PowerShell 中用 `$env:DASHSCOPE_API_KEY='新值'` 覆盖，或清理旧值。
 
-### 2. 本地开发
+### 3. 本地开发
 
 ```bash
 # 后端
+conda activate interview-commentator
 cd backend
-pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 前端(另开终端)
 cd frontend
-npm install
+npm ci
 npm run dev                        # http://localhost:5173
 ```
 
@@ -139,20 +156,23 @@ npm run dev                        # http://localhost:5173
 
 > Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程(重启时自动执行补列迁移)。
 
-### 3. 生成演示数据(可选,纯离线)
+### 4. 生成演示数据(可选,纯离线)
 
 ```bash
 python scripts/make_demo.py
 ```
 
-5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表。
+5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表,完成后会打印带 `#access_token=...` fragment 的本地演示链接;前端读取后立即从地址栏清除。
 
-### 4. Docker 部署
+### 5. Docker 部署（当前仅后端）
 
 ```bash
-copy .env.example backend\.env    # 填 DASHSCOPE_API_KEY
+copy .env.example backend\.env    # 填 DASHSCOPE_API_KEY 与 REVIEW_PASSPHRASE
 docker compose up -d --build
+docker compose ps                  # backend 应显示 healthy
 ```
+
+容器内数据库固定写入 `/app/data/interview.db` 并挂载命名卷;`backend/.env`、数据库、上传临时文件均不会进入镜像构建上下文。
 
 ## 六、三组验收指标(答辩用)
 
@@ -166,27 +186,32 @@ docker compose up -d --build
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/jobs?status=approved` | 岗位大厅(默认仅上架;审核页传 pending/all) |
-| POST | `/api/jobs` | 自助发布招聘(默认 pending;`skip_review` 供演示直挂) |
-| POST | `/api/jobs/review` | 官方审核:口令 → approve/reject(附原因) |
-| GET | `/api/jobs/{id}` | 岗位详情(含考察维度) |
-| POST | `/api/jobs/{id}/analyze` | JD 分析失败重试 |
-| POST | `/api/candidates` | 上传简历(multipart,自动解析) |
-| GET | `/api/candidates/{id}/match/{jobId}` | 人岗匹配分析(总分/维度分/亮点/缺口) |
-| POST | `/api/interviews` | 发起模拟面试(job+candidate+style) |
-| GET | `/api/interviews/{id}` | 面试详情(含 style) |
-| POST | `/api/interviews/{id}/message` | 答题闭环(空 reply = 开场白) |
-| GET | `/api/interviews/{id}/messages` | 逐轮消息(回放/审计) |
-| GET | `/api/interviews/{id}/state` | 会话进度快照 |
-| GET | `/api/interviews/{id}/report` | 个人竞争力评估报告 |
+| GET | `/api/jobs?status=approved` | 岗位大厅;查询 pending/all 需后台请求头 |
+| POST | `/api/jobs` | 自助发布招聘,一律 pending 且不触发 LLM |
+| POST | `/api/jobs/review/auth` | 校验后台请求头 `X-Review-Passphrase` |
+| POST | `/api/jobs/review` | 后台审核;通过时分析 JD 并上架 |
+| GET | `/api/jobs/{id}` | 已上架岗位详情;非公开岗位需后台请求头 |
+| POST | `/api/jobs/{id}/analyze` | 后台 JD 分析失败重试 |
+| POST | `/api/candidates` | 上传简历;响应仅一次返回匿名 `access_token` |
+| GET | `/api/candidates/{id}/match/{jobId}` | 人岗匹配分析;需候选人令牌 |
+| POST | `/api/interviews` | 发起模拟面试;需候选人令牌 |
+| GET | `/api/interviews/{id}` | 面试详情;需候选人令牌 |
+| POST | `/api/interviews/{id}/message` | 答题闭环;需令牌,支持幂等 `request_id` |
+| GET | `/api/interviews/{id}/messages` | 逐轮消息;需候选人令牌 |
+| GET | `/api/interviews/{id}/state` | 会话进度快照;需候选人令牌 |
+| GET | `/api/interviews/{id}/report` | 个人竞争力评估报告;需候选人令牌 |
 
 ## 八、测试
 
-后端离线测试 **25 通过 + 2 跳过**(跳过的为需真实 Key 的联网用例;mock LLM 注入,确定性、CI 可用):
+后端离线测试默认不会访问真实 LLM;联网用例必须显式开启:
 
-```bash
-cd backend
-set DASHSCOPE_API_KEY= && python -m pytest tests/ -q
+```powershell
+conda activate interview-commentator
+python -m pytest -q
+
+# 仅手动验收真实千问时运行
+$env:RUN_LLM_TESTS='1'
+python -m pytest -m llm_live -q
 ```
 
 - `test_state_machine.py`:状态机冒烟(action 枚举、维度推进、轮次上限、收尾)
@@ -195,7 +220,7 @@ set DASHSCOPE_API_KEY= && python -m pytest tests/ -q
 - `test_matcher_and_style.py`:三种人格差异 + 协议不变 + 匹配 Agent
 - `test_evaluator.py`:评估报告结构
 
-> 策略:Agent / 状态机测试一律注入 **mock LLM**(fake 判断器),不依赖 API Key;真实千问仅做手动验收。
+> 策略:Agent / 状态机测试一律注入 **mock LLM**(fake 判断器),不依赖 API Key;即使 `backend/.env` 里存在 Key,默认测试也不会产生外部调用或费用。
 
 ## 九、开源复用清单
 
@@ -208,4 +233,4 @@ set DASHSCOPE_API_KEY= && python -m pytest tests/ -q
 
 ---
 
-**当前版本**:应聘者自助闭环改版(千问 + 数字人语音 + 岗位审核治理)。
+**当前版本**:应聘者自助闭环改版(千问 + 数字人语音 + 岗位审核治理 + 幂等/并发保护)。

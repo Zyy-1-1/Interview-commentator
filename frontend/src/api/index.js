@@ -1,15 +1,36 @@
 // 后端 API 封装(vite dev server 已将 /api 代理到 FastAPI)
 const BASE = '/api'
+const API_TIMEOUT_MS = 90_000
+
+function adminHeaders(passphrase) {
+  return passphrase ? { 'X-Review-Passphrase': passphrase } : {}
+}
+
+function candidateHeaders(token) {
+  return token ? { 'X-Candidate-Token': token } : {}
+}
 
 async function request(path, options = {}) {
   let resp
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS)
+  const headers = new Headers(options.headers || {})
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
   try {
     resp = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
       ...options,
+      headers,
+      signal: controller.signal,
     })
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('请求超时,请稍后重试')
+    }
     throw new Error('网络异常,请确认后端服务已启动(localhost:8000)')
+  } finally {
+    window.clearTimeout(timer)
   }
   const data = await resp.json().catch(() => ({}))
   if (!resp.ok) {
@@ -20,23 +41,30 @@ async function request(path, options = {}) {
 
 export const jobs = {
   // 大厅默认只看已上架;审核页传 status=pending / all
-  list: (status = 'approved') => request(`/jobs?status=${encodeURIComponent(status)}`),
+  list: (status = 'approved', passphrase = '') =>
+    request(`/jobs?status=${encodeURIComponent(status)}`, {
+      headers: adminHeaders(passphrase),
+    }),
   get: (id) => request(`/jobs/${id}`),
-  create: (title, jdText, company, skipReview = false) =>
+  create: (title, jdText, company) =>
     request('/jobs', {
       method: 'POST',
       body: JSON.stringify({
         title,
         jd_text: jdText,
         company: company || null,
-        skip_review: skipReview,
       }),
+    }),
+  auth: (passphrase) =>
+    request('/jobs/review/auth', {
+      method: 'POST',
+      headers: adminHeaders(passphrase),
     }),
   review: (passphrase, jobId, approve, note = null) =>
     request('/jobs/review', {
       method: 'POST',
+      headers: adminHeaders(passphrase),
       body: JSON.stringify({
-        passphrase,
         job_id: jobId,
         approve,
         note,
@@ -45,31 +73,27 @@ export const jobs = {
 }
 
 export const candidates = {
-  list: () => request('/candidates'),
-  upload: async (file) => {
+  list: (passphrase) => request('/candidates', { headers: adminHeaders(passphrase) }),
+  upload: (file) => {
     const form = new FormData()
     form.append('file', file)
-    let resp
-    try {
-      resp = await fetch(`${BASE}/candidates`, { method: 'POST', body: form })
-    } catch {
-      throw new Error('网络异常,请确认后端服务已启动')
-    }
-    const data = await resp.json().catch(() => ({}))
-    if (!resp.ok) throw new Error(data.detail || `上传失败(${resp.status})`)
-    return data
+    return request('/candidates', { method: 'POST', body: form })
   },
   // 面试前的人岗匹配分析
-  match: (candidateId, jobId) =>
-    request(`/candidates/${candidateId}/match/${jobId}`),
+  match: (candidateId, jobId, token) =>
+    request(`/candidates/${candidateId}/match/${jobId}`, {
+      headers: candidateHeaders(token),
+    }),
 }
 
 export const interviews = {
-  list: () => request('/interviews'),
-  get: (id) => request(`/interviews/${id}`),
-  create: (jobId, candidateId, style = 'pro') =>
+  list: (passphrase) => request('/interviews', { headers: adminHeaders(passphrase) }),
+  get: (id, token) =>
+    request(`/interviews/${id}`, { headers: candidateHeaders(token) }),
+  create: (jobId, candidateId, style = 'pro', token) =>
     request('/interviews', {
       method: 'POST',
+      headers: candidateHeaders(token),
       body: JSON.stringify({
         job_id: jobId,
         candidate_id: candidateId,
@@ -77,19 +101,27 @@ export const interviews = {
       }),
     }),
   // 面试状态(进度)
-  state: (id) => request(`/interviews/${id}/state`),
+  state: (id, token) =>
+    request(`/interviews/${id}/state`, { headers: candidateHeaders(token) }),
   // 历史消息
-  messages: (id) => request(`/interviews/${id}/messages`),
+  messages: (id, token) =>
+    request(`/interviews/${id}/messages`, { headers: candidateHeaders(token) }),
   // 提交回答(reply 传 null/undefined 触发开场白)
-  message: (id, reply) =>
+  message: (id, reply, requestId, token) =>
     request(`/interviews/${id}/message`, {
       method: 'POST',
-      body: JSON.stringify({ reply: reply ?? null }),
+      headers: candidateHeaders(token),
+      body: JSON.stringify({ reply: reply ?? null, request_id: requestId }),
     }),
   // 多应聘者横向对比(演示用,按岗位分组)
-  comparison: () => request('/interviews/comparison'),
+  comparison: (passphrase) =>
+    request('/interviews/comparison', { headers: adminHeaders(passphrase) }),
   // 评估报告
-  report: (id) => request(`/interviews/${id}/report`),
-  evaluate: (id) =>
-    request(`/interviews/${id}/evaluate`, { method: 'POST' }),
+  report: (id, token) =>
+    request(`/interviews/${id}/report`, { headers: candidateHeaders(token) }),
+  evaluate: (id, token) =>
+    request(`/interviews/${id}/evaluate`, {
+      method: 'POST',
+      headers: candidateHeaders(token),
+    }),
 }

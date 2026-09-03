@@ -28,12 +28,12 @@
       @drop.prevent="onDrop">
       <div class="up-icon">📄</div>
       <h2>上传你的简历</h2>
-      <p class="sub">支持 PDF / Word / Markdown / TXT,拖拽或点击选择文件</p>
+      <p class="sub">支持 PDF / DOCX / Markdown / TXT（最大 10 MB）,拖拽或点击选择文件</p>
       <p class="sub">AI 将解析简历并生成「人岗匹配分析」,看完分析再决定是否开始模拟面试</p>
       <button class="primary" :disabled="state.uploading" @click="$refs.file.click()">
         {{ state.uploading ? '解析中,请稍候…' : '选择简历文件' }}
       </button>
-      <input ref="file" type="file" accept=".pdf,.docx,.doc,.txt,.md" hidden @change="onFile" />
+      <input ref="file" type="file" accept=".pdf,.docx,.txt,.md" hidden @change="onFile" />
       <p v-if="state.uploading" class="dots-line">
         正在解析简历 + 匹配分析 <span class="dots"><i></i><i></i><i></i></span>
       </p>
@@ -109,10 +109,11 @@
 </template>
 
 <script>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import * as echarts from 'echarts'
 import { candidates, interviews, jobs } from '../api'
+import { storeInterviewToken } from '../access'
+import { init as initChart } from '../lib/echarts'
 
 const STYLES = [
   {
@@ -146,6 +147,7 @@ export default {
     const jobId = Number(route.params.jobId)
     const fileInput = ref(null)
     const chartEl = ref(null)
+    let chart = null
 
     const state = reactive({
       job: null,
@@ -185,7 +187,7 @@ export default {
       const el = chartEl.value
       const dims = match.value?.dimension_scores || []
       if (!el || !dims.length) return
-      const chart = echarts.init(el)
+      if (!chart) chart = initChart(el)
       chart.setOption({
         radar: {
           indicator: dims.map((d) => ({ name: d.name, max: 10 })),
@@ -213,7 +215,11 @@ export default {
       matchLoading.value = true
       state.error = ''
       try {
-        match.value = await candidates.match(state.cand.id, jobId)
+        match.value = await candidates.match(
+          state.cand.id,
+          jobId,
+          state.cand.access_token
+        )
         await nextTick()
         renderChart()
       } catch (e) {
@@ -249,6 +255,7 @@ export default {
     }
 
     function reupload() {
+      chart?.clear()
       state.cand = null
       match.value = null
       state.error = ''
@@ -258,7 +265,9 @@ export default {
       state.starting = true
       state.error = ''
       try {
-        const iv = await interviews.create(jobId, state.cand.id, style.value)
+        const token = state.cand.access_token
+        const iv = await interviews.create(jobId, state.cand.id, style.value, token)
+        storeInterviewToken(iv.id, token)
         router.push(`/interview/${iv.id}`)
       } catch (e) {
         state.error = e.message
@@ -267,6 +276,7 @@ export default {
     }
 
     onMounted(async () => {
+      window.addEventListener('resize', onResize)
       try {
         state.job = await jobs.get(jobId)
         if (!state.job.dimensions || !state.job.dimensions.length) {
@@ -275,6 +285,16 @@ export default {
       } catch (e) {
         state.error = e.message
       }
+    })
+
+    function onResize() {
+      chart?.resize()
+    }
+
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', onResize)
+      chart?.dispose()
+      chart = null
     })
 
     return {

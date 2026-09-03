@@ -81,7 +81,7 @@ def evaluate(
     parsed_resume: str | None,
     messages: list[dict[str, str]],
 ) -> dict[str, Any]:
-    """评估 Agent 主入口:一次 LLM 调用产出报告 JSON。"""
+    """评估 Agent 主入口:一次 LLM 调用后由服务端规范化和复算。"""
     user = build_user_prompt(
         job_title=job_title,
         dimensions=dimensions,
@@ -89,11 +89,110 @@ def evaluate(
         messages=messages,
     )
     result = chat_json(SYSTEM_PROMPT, user, temperature=0.2)
-    # 兜底:确保关键字段存在,避免空报告
-    if not isinstance(result.get("dimensions"), list):
+    return _normalize_report(result, dimensions=dimensions, messages=messages)
+
+
+def _normalize_report(
+    result: dict[str, Any],
+    *,
+    dimensions: list[dict[str, Any]],
+    messages: list[dict[str, str]],
+) -> dict[str, Any]:
+    """强制覆盖岗位维度、限制分数并删除无法在候选人原话中定位的证据。"""
+    if not isinstance(result, dict) or not isinstance(result.get("dimensions"), list):
         raise ValueError("评估未产出有效维度打分")
-    result.setdefault("strengths", [])
-    result.setdefault("risks", [])
-    result.setdefault("next_step_questions", [])
-    result.setdefault("suggestion", "待评估")
-    return result
+    if not dimensions:
+        raise ValueError("岗位没有可评估维度")
+
+    raw_by_name = {
+        str(item.get("name", "")).strip(): item
+        for item in result["dimensions"]
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    }
+    candidate_corpus = "\n".join(
+        str(message.get("text", ""))
+        for message in messages
+        if message.get("role") == "candidate"
+    )
+    normalized_dimensions: list[dict[str, Any]] = []
+    validation_risks: list[str] = []
+    weighted_score = 0.0
+    weight_total = 0.0
+
+    for expected in dimensions:
+        name = str(expected.get("name", "")).strip()
+        if not name:
+            continue
+        raw = raw_by_name.get(name)
+        if raw is None:
+            raw = {}
+            validation_risks.append(f"维度「{name}」未产出有效评分,已按 0 分处理")
+        try:
+            score = float(raw.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0.0
+            validation_risks.append(f"维度「{name}」评分格式无效,已按 0 分处理")
+        score = round(max(0.0, min(10.0, score)), 1)
+
+        evidence = []
+        raw_evidence = raw.get("evidence")
+        if isinstance(raw_evidence, list):
+            for item in raw_evidence:
+                quote = _clean_evidence(item)
+                if quote and quote in candidate_corpus and quote not in evidence:
+                    evidence.append(quote)
+        if raw_evidence and not evidence:
+            validation_risks.append(f"维度「{name}」的证据无法在候选人原话中核验,已移除")
+
+        normalized_dimensions.append(
+            {"name": name, "score": score, "evidence": evidence}
+        )
+        try:
+            weight = max(0.0, float(expected.get("weight", 0)))
+        except (TypeError, ValueError):
+            weight = 0.0
+        weighted_score += score * weight
+        weight_total += weight
+
+    if not normalized_dimensions:
+        raise ValueError("岗位没有命名有效的评估维度")
+    if weight_total > 0:
+        summary_score = round(weighted_score / weight_total * 10, 1)
+    else:
+        summary_score = round(
+            sum(item["score"] for item in normalized_dimensions)
+            / len(normalized_dimensions)
+            * 10,
+            1,
+        )
+    if float(summary_score).is_integer():
+        summary_score = int(summary_score)
+
+    risks = _string_list(result.get("risks"), limit=8)
+    for risk in validation_risks:
+        if risk not in risks:
+            risks.append(risk)
+    return {
+        "summary_score": summary_score,
+        "suggestion": str(result.get("suggestion") or "待评估")[:500],
+        "dimensions": normalized_dimensions,
+        "strengths": _string_list(result.get("strengths"), limit=6),
+        "risks": risks[:10],
+        "next_step_questions": _string_list(
+            result.get("next_step_questions"), limit=6
+        ),
+    }
+
+
+def _clean_evidence(value: Any) -> str:
+    quote = str(value or "").strip()
+    for prefix in ("候选人原话:", "候选人原话：", "应聘者原话:", "应聘者原话："):
+        if quote.startswith(prefix):
+            quote = quote[len(prefix) :].strip()
+    return quote.strip(" \t\r\n\"'“”‘’「」")[:500]
+
+
+def _string_list(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip()[:500] for item in value if str(item).strip()][:limit]

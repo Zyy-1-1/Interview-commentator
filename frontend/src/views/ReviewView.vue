@@ -16,7 +16,9 @@
         placeholder="审核口令"
         @keydown.enter="authed"
       />
-      <button class="primary" :disabled="!state.pass.trim()" @click="authed">进入</button>
+      <button class="primary" :disabled="!state.pass.trim() || state.loading" @click="authed">
+        {{ state.loading ? '校验中…' : '进入' }}
+      </button>
       <p v-if="state.error" class="err">{{ state.error }}</p>
     </div>
 
@@ -92,8 +94,7 @@ export default {
       state.loading = true
       state.error = ''
       try {
-        // 已登录(会话内存)后,用 all 拉全量,同时校验口令
-        state.jobs = await jobs.list('all')
+        state.jobs = await jobs.list('all', state.pass)
       } catch (e) {
         state.error = e.message
       } finally {
@@ -102,7 +103,18 @@ export default {
     }
 
     async function authed() {
-      state.authed = true
+      state.loading = true
+      state.error = ''
+      try {
+        await jobs.auth(state.pass)
+        state.authed = true
+      } catch (e) {
+        state.authed = false
+        state.error = e.message
+        return
+      } finally {
+        state.loading = false
+      }
       await load()
     }
 

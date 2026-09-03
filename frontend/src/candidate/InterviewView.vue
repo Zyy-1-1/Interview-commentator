@@ -67,7 +67,7 @@
         <!-- 发送失败:可重试的错误卡片 -->
         <div v-if="state.failed" class="msg candidate">
           <div class="fail-card">
-            <div class="fail-text">{{ state.failed }}</div>
+            <div class="fail-text">{{ state.failed.reply }}</div>
             <div class="fail-row">
               <span class="fail-hint">⚠ 发送失败</span>
               <button class="retry" @click="retry">重试</button>
@@ -120,6 +120,7 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { interviews } from '../api'
+import { getInterviewToken } from '../access'
 import DigitalHuman from '../components/DigitalHuman.vue'
 import { useSpeech } from '../composables/useSpeech'
 
@@ -143,12 +144,18 @@ const VOICE_BY_STYLE = Object.fromEntries(STYLES.map((s) => [s.key, s.voice]))
 
 const MAX_GROW_PX = 120
 
+function newRequestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export default {
   name: 'InterviewView',
   components: { DigitalHuman },
   setup() {
     const route = useRoute()
     const interviewId = Number(route.params.id)
+    const accessToken = getInterviewToken(interviewId)
     const chatBox = ref(null)
     const inputRef = ref(null)
     const speech = useSpeech()
@@ -161,12 +168,13 @@ export default {
       input: '',
       messages: [],
       progress: {},
-      failed: '',
+      failed: null,
     })
 
     const chosenStyle = ref('pro')
     const starting = ref(false)
     const showPicker = ref(false)
+    const openingRequestId = ref(newRequestId())
 
     const hasProgress = computed(() => !!state.progress.phase)
     const phaseKey = computed(() => (state.progress.phase || '').toLowerCase())
@@ -220,12 +228,17 @@ export default {
     }
 
     async function boot() {
+      if (!accessToken) {
+        state.error = '当前浏览器没有这场面试的访问凭证,请从岗位页重新上传简历进入'
+        state.loading = false
+        return
+      }
       try {
-        const s = await interviews.state(interviewId)
+        const s = await interviews.state(interviewId, accessToken)
         state.progress = s.progress
-        const full = await interviews.get(interviewId)
+        const full = await interviews.get(interviewId, accessToken)
         chosenStyle.value = full.style || 'pro'
-        const msgs = await interviews.messages(interviewId)
+        const msgs = await interviews.messages(interviewId, accessToken)
         state.messages = msgs.map((m) => ({ role: m.role, text: m.text }))
         if (s.status === 'finished') state.finished = true
         if (msgs.length === 0) {
@@ -263,7 +276,12 @@ export default {
       starting.value = true
       state.error = ''
       try {
-        const turn = await interviews.message(interviewId, null)
+        const turn = await interviews.message(
+          interviewId,
+          null,
+          openingRequestId.value,
+          accessToken
+        )
         state.progress = turn.progress
         state.messages.push({ role: 'agent', text: turn.agent_question })
         if (turn.finished) state.finished = true
@@ -277,14 +295,14 @@ export default {
       }
     }
 
-    // 提交一条回答:成功 push 面试官问题;失败保留文本到 state.failed 供重试
-    async function deliver(reply) {
+    // 一次逻辑发送固定 requestId；网络失败重试时复用，避免服务端重复推进。
+    async function deliver(reply, requestId = newRequestId()) {
       state.sending = true
-      state.failed = ''
+      state.failed = null
       state.messages.push({ role: 'candidate', text: reply })
       scrollBottom()
       try {
-        const turn = await interviews.message(interviewId, reply)
+        const turn = await interviews.message(interviewId, reply, requestId, accessToken)
         state.progress = turn.progress
         state.messages.push({ role: 'agent', text: turn.agent_question })
         say(turn.agent_question)
@@ -292,7 +310,7 @@ export default {
       } catch (e) {
         state.messages.pop() // 撤回展示,由失败卡片接管
         state.error = ''
-        state.failed = reply
+        state.failed = { reply, requestId }
       } finally {
         state.sending = false
         scrollBottom()
@@ -309,9 +327,9 @@ export default {
     }
 
     async function retry() {
-      const reply = state.failed
-      if (!reply || state.sending) return
-      await deliver(reply)
+      const failed = state.failed
+      if (!failed || state.sending) return
+      await deliver(failed.reply, failed.requestId)
     }
 
     onMounted(boot)

@@ -27,3 +27,9 @@ backend/uploads/
 
 # Claude Code 本地设置(不提交)
 .claude/settings.local.json
+
+# 本地 Agent 工作区(不提交)
+.agents/
+
+# 本地 Agent 工作区(不提交)
+.agents/

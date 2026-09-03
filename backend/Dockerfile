@@ -1,20 +1,21 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 WORKDIR /app
-
-# 安装系统依赖(PDF 解析需要)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmagic1 \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+RUN addgroup --system app && adduser --system --ingroup app app
 
-# SQLite 数据目录
-RUN mkdir -p /app/data
+COPY --chown=app:app app ./app
+
+# SQLite 持久目录 + 简历解析临时目录
+RUN mkdir -p /app/data /app/uploads && chown app:app /app/data /app/uploads
 ENV DATABASE_URL=sqlite:////app/data/interview.db
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+USER app
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

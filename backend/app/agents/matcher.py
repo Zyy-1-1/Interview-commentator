@@ -61,9 +61,63 @@ def match_resume_to_job(
         ),
         temperature=0.2,
     )
-    # 兜底校验
-    if not isinstance(result.get("overall"), (int, float)):
-        raise ValueError("匹配分析缺少 overall 分数")
     if not isinstance(result.get("dimension_scores"), list):
         raise ValueError("匹配分析缺少 dimension_scores")
-    return result
+    return _normalize_match(result, dimensions)
+
+
+def _normalize_match(
+    result: dict[str, Any], dimensions: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """按岗位维度补齐结果、限制分数，并由服务端复算总分。"""
+    if not dimensions:
+        raise ValueError("岗位没有可匹配维度")
+    raw_by_name = {
+        str(item.get("name", "")).strip(): item
+        for item in result["dimension_scores"]
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    }
+    scores = []
+    weighted = 0.0
+    weight_total = 0.0
+    for expected in dimensions:
+        name = str(expected.get("name", "")).strip()
+        if not name:
+            continue
+        raw = raw_by_name.get(name, {})
+        try:
+            score = max(0.0, min(10.0, float(raw.get("score", 0))))
+        except (TypeError, ValueError):
+            score = 0.0
+        score = round(score, 1)
+        evidence = str(raw.get("resume_evidence") or "简历未提及").strip()[:500]
+        scores.append({"name": name, "resume_evidence": evidence, "score": score})
+        try:
+            weight = max(0.0, float(expected.get("weight", 0)))
+        except (TypeError, ValueError):
+            weight = 0.0
+        weighted += score * weight
+        weight_total += weight
+    if not scores:
+        raise ValueError("岗位没有命名有效的匹配维度")
+    overall = (
+        weighted / weight_total * 10
+        if weight_total > 0
+        else sum(item["score"] for item in scores) / len(scores) * 10
+    )
+    overall = round(overall, 1)
+    if float(overall).is_integer():
+        overall = int(overall)
+    return {
+        "overall": overall,
+        "summary": str(result.get("summary") or "暂无整体分析")[:500],
+        "dimension_scores": scores,
+        "highlights": _string_list(result.get("highlights")),
+        "gaps": _string_list(result.get("gaps")),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip()[:500] for item in value if str(item).strip()][:6]

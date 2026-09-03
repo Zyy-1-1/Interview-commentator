@@ -2,7 +2,6 @@
 
 每轮 LLM 输出严格 JSON 协议:
 {
-  "thinking": "内部推理,不展示给候选人;判断回答质量与下一步",
   "assess": {
     "answered": true,        # 是否算有效回答(跑题/空话=false)
     "quality": 7,            # 回答质量 1-10
@@ -19,9 +18,8 @@ from typing import Any
 from .state import ACTION_CLOSING, ACTION_CONTINUE_DIMENSION, InterviewState
 
 # 输出协议描述,附加在系统 prompt 末尾,约束 LLM 严格按结构返回。
-OUTPUT_PROTOCOL = """【输出协议】你必须严格输出一个 JSON 对象,包含以下字段(不要输出任何多余文字):
+OUTPUT_PROTOCOL = """【输出协议】你必须严格输出一个 JSON 对象,包含以下字段(不要输出思维过程或任何多余文字):
 {
-  "thinking": "内部推理(不展示给候选人):判断上一句回答质量、是否跑题、下一步该怎么走",
   "assess": {
     "answered": true,
     "quality": 7,
@@ -101,14 +99,15 @@ OPENING_PROMPT = """面试刚开始,应聘者还没有发言。
 请你用简洁专业的中文做开场白:简短问好、说明面试流程(约 15 分钟、会围绕几个能力维度提问),
 然后直接抛出第一个问题(针对当前考察维度:【{dimension_name}】,考察要点:【{dimension_keywords}】)。
 输出 JSON:{{
-  "thinking": "开场白设计思路",
   "assess": {{"answered": true, "quality": 0, "issue": "开场白", "evidence": ""}},
   "next_question": "你的开场白 + 第一个问题(合并为一段)",
   "action": "{default_action}"
 }}"""
 
 # 常规判断模式:给出对话历史 + 最新回答,要求 LLM 判断并出下一问。
-JUDGE_PROMPT = """以下是本轮面试的对话记录(role 为 agent 的是面试官的问题,为 candidate 的是应聘者回答):
+JUDGE_PROMPT = """【当前流程】阶段:{phase}; 当前考察维度:{dimension_name}; 该维度已问:{dimension_count} 次。
+
+以下是本轮面试的对话记录(role 为 agent 的是面试官的问题,为 candidate 的是应聘者回答):
 
 {history_lines}
 
@@ -156,7 +155,14 @@ def build_user_prompt(state: InterviewState) -> str:
         )
 
     lines = [f"({i + 1}) {m['role']}: {m['text']}" for i, m in enumerate(history)]
+    dimensions = state.get("dimensions") or []
+    dim_idx = state.get("dim_idx", 0)
+    dim = dimensions[dim_idx] if 0 <= dim_idx < len(dimensions) else {}
+    dim_name = dim.get("name", "无")
     return JUDGE_PROMPT.format(
+        phase=state.get("phase", ""),
+        dimension_name=dim_name,
+        dimension_count=(state.get("dim_question_count") or {}).get(dim_name, 0),
         history_lines="\n".join(lines),
         last_reply=(state.get("candidate_reply") or "").strip(),
     )

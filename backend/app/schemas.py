@@ -3,16 +3,16 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------- Job ----------
 class JobCreate(BaseModel):
-    title: str
-    jd_text: str
-    company: Optional[str] = None
-    # 演示/内部建岗可跳过审核直接上架;自助提交一律 pending
-    skip_review: bool = False
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=2, max_length=255)
+    jd_text: str = Field(min_length=10, max_length=50_000)
+    company: Optional[str] = Field(default=None, max_length=255)
 
 
 class JobOut(BaseModel):
@@ -39,17 +39,17 @@ class JobOut(BaseModel):
 
 
 class JobReviewIn(BaseModel):
-    passphrase: str
-    job_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: int = Field(gt=0)
     approve: bool
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 # ---------- Candidate ----------
 class CandidateOut(BaseModel):
     id: int
     name: Optional[str] = None
-    resume_text: Optional[str] = None
     parsed_resume: Optional[dict] = None
     created_at: datetime
 
@@ -66,10 +66,18 @@ class CandidateOut(BaseModel):
         return v
 
 
+class CandidateCreated(CandidateOut):
+    """上传成功时仅返回一次的匿名访问令牌。"""
+
+    access_token: str
+
+
 # ---------- Interview ----------
 class InterviewCreate(BaseModel):
-    job_id: int
-    candidate_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: int = Field(gt=0)
+    candidate_id: int = Field(gt=0)
     # pro | friendly | pressure
     style: str = "pro"
 
@@ -143,7 +151,11 @@ class InterviewTurn(BaseModel):
 
 class InterviewMessage(BaseModel):
     """候选人提交回答(reply 为空表示开场,生成开场白)。"""
-    reply: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    reply: Optional[str] = Field(default=None, max_length=20_000)
+    # 客户端为一次逻辑发送生成并在重试时复用，防止响应丢失后重复推进状态机。
+    request_id: Optional[str] = Field(default=None, min_length=8, max_length=64)
 
 
 class InterviewStateOut(BaseModel):

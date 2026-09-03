@@ -1,5 +1,4 @@
-# 「面评家」docker compose 编排
-# MVP 阶段:仅后端;前端(W3 落地后)追加 frontend 服务
+# 「面评家」docker compose 编排（当前仅后端）
 services:
   backend:
     build:
@@ -7,13 +6,24 @@ services:
       dockerfile: Dockerfile
     container_name: interview-backend
     env_file:
-      - .env
+      - ./backend/.env
+    environment:
+      # 固定到持久卷，避免 .env 中的本地相对路径覆盖容器配置。
+      DATABASE_URL: sqlite:////app/data/interview.db
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/app:/app/app
       - db-data:/app/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

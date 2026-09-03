@@ -34,7 +34,61 @@ def analyze_jd(jd_text: str, max_chars: int = 6000) -> dict[str, Any]:
         user=f"以下是岗位 JD:\n\n{jd_text[:max_chars]}",
         temperature=0.2,
     )
-    # 兜底:确保 dimensions 存在
-    if not isinstance(result.get("dimensions"), list) or not result["dimensions"]:
+    dimensions = _normalize_dimensions(result.get("dimensions"))
+    return {
+        "dimensions": dimensions,
+        "junior_level": bool(result.get("junior_level", False)),
+    }
+
+
+def _normalize_dimensions(value: Any) -> list[dict[str, Any]]:
+    """清洗模型输出并保证硬技能在前、软素质在后、权重和为 1。"""
+    if not isinstance(value, list) or not value:
         raise ValueError("JD 分析未产出有效维度清单")
-    return result
+    dimensions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value[:10]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:100]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        dim_type = "soft" if item.get("type") == "soft" else "hard"
+        try:
+            weight = max(0.0, float(item.get("weight", 0)))
+        except (TypeError, ValueError):
+            weight = 0.0
+        keywords = item.get("keywords")
+        if not isinstance(keywords, list):
+            keywords = []
+        dimensions.append(
+            {
+                "name": name,
+                "type": dim_type,
+                "weight": weight,
+                "keywords": [
+                    str(keyword).strip()[:50]
+                    for keyword in keywords[:10]
+                    if str(keyword).strip()
+                ],
+                "probe": "STAR" if dim_type == "soft" else None,
+            }
+        )
+    if not dimensions:
+        raise ValueError("JD 分析未产出有效维度清单")
+
+    dimensions.sort(key=lambda item: item["type"] == "soft")
+    total = sum(item["weight"] for item in dimensions)
+    if total <= 0:
+        normalized_weights = [1 / len(dimensions)] * len(dimensions)
+    else:
+        normalized_weights = [item["weight"] / total for item in dimensions]
+    for item, weight in zip(dimensions, normalized_weights, strict=True):
+        item["weight"] = round(weight, 4)
+    # 抵消四舍五入误差，确保下游加权结果稳定。
+    dimensions[-1]["weight"] = round(
+        dimensions[-1]["weight"] + 1 - sum(item["weight"] for item in dimensions),
+        4,
+    )
+    return dimensions

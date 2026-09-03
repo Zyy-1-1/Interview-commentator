@@ -14,7 +14,10 @@ DIMS = [
 FAKE_REPORT = {
     "summary_score": 78,
     "suggestion": "建议进入二面",
-    "dimensions": [{"name": "Python 编程", "score": 8.0, "evidence": ["候选人原话:用 asyncio 优化"]}],
+    "dimensions": [
+        {"name": "Python 编程", "score": 8.0, "evidence": ["我用 asyncio 优化了接口"]},
+        {"name": "沟通表达", "score": 7.0, "evidence": ["我推动了跨部门协作"]},
+    ],
     "strengths": ["技术基础扎实"],
     "risks": ["行为维度考察不充分"],
     "next_step_questions": ["二面重点考察系统设计"],
@@ -40,9 +43,14 @@ def test_evaluate_returns_report(monkeypatch):
         job_title="Python 后端",
         dimensions=DIMS,
         parsed_resume='{"基础": "3 年"}',
-        messages=[{"role": "agent", "text": "自我介绍?"}, {"role": "candidate", "text": "我是张三"}],
+        messages=[
+            {"role": "agent", "text": "自我介绍?"},
+            {"role": "candidate", "text": "我用 asyncio 优化了接口；我推动了跨部门协作"},
+        ],
     )
-    assert report == FAKE_REPORT
+    assert report["summary_score"] == 76
+    assert [d["name"] for d in report["dimensions"]] == ["Python 编程", "沟通表达"]
+    assert report["dimensions"][0]["evidence"] == ["我用 asyncio 优化了接口"]
     # user prompt 应包含岗位与面试记录标签
     assert "Python 后端" in calls["user"]
     assert "应聘者" in calls["user"]
@@ -68,3 +76,25 @@ def test_evaluate_missing_dimensions_raises(monkeypatch):
     monkeypatch.setattr(evaluator, "chat_json", lambda system, user, **kw: {})
     with pytest.raises(ValueError, match="评估未产出有效维度打分"):
         evaluator.evaluate(job_title="x", dimensions=DIMS, parsed_resume=None, messages=[])
+
+
+def test_evaluate_recomputes_score_and_removes_hallucinated_evidence(monkeypatch):
+    raw = {
+        **FAKE_REPORT,
+        "summary_score": 100,
+        "dimensions": [
+            {"name": "Python 编程", "score": 99, "evidence": ["从未说过的话"]},
+            {"name": "沟通表达", "score": "bad", "evidence": []},
+        ],
+    }
+    monkeypatch.setattr(evaluator, "chat_json", lambda *args, **kwargs: raw)
+    report = evaluator.evaluate(
+        job_title="x",
+        dimensions=DIMS,
+        parsed_resume=None,
+        messages=[{"role": "candidate", "text": "我只说过这一句"}],
+    )
+    assert report["dimensions"][0]["score"] == 10
+    assert report["dimensions"][0]["evidence"] == []
+    assert report["dimensions"][1]["score"] == 0
+    assert report["summary_score"] == 60

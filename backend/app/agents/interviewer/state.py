@@ -63,6 +63,9 @@ class InterviewState(TypedDict, total=False):
     assess: NotRequired[dict[str, Any]]            # 本轮质量判断(归一化后),供消息留痕/评估
     finished: NotRequired[bool]                    # 本轮是否收尾
     closing_message: NotRequired[str]              # 收尾语
+    last_request_id: NotRequired[str]              # 最近一次已提交客户端请求 ID
+    last_request_reply: NotRequired[str]           # 防止同一请求 ID 被不同内容复用
+    last_turn: NotRequired[dict[str, Any]]          # 幂等重试时直接回放的响应
 
 
 def initial_state(

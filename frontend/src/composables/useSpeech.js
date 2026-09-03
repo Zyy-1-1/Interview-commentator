@@ -57,13 +57,20 @@ export function useSpeech() {
     if (!state.enabled) stop()
   }
 
-  // Chrome 的 voice 列表异步加载,预热一次
+  const warmVoices = () => window.speechSynthesis.getVoices()
+
+  // Chrome 的 voice 列表异步加载,只注册本组件监听，不覆盖页面上的其他监听器。
   if (supported) {
-    window.speechSynthesis.onvoiceschanged = () => {}
-    window.speechSynthesis.getVoices()
+    window.speechSynthesis.addEventListener('voiceschanged', warmVoices)
+    warmVoices()
   }
 
-  onBeforeUnmount(stop)
+  onBeforeUnmount(() => {
+    if (supported) {
+      window.speechSynthesis.removeEventListener('voiceschanged', warmVoices)
+    }
+    stop()
+  })
 
   return { supported, speaking: () => state.speaking, state, speak, stop, toggle }
 }

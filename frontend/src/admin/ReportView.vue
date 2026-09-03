@@ -77,28 +77,30 @@
 <script>
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import * as echarts from 'echarts'
 import { interviews } from '../api'
+import { getInterviewToken } from '../access'
+import { init as initChart } from '../lib/echarts'
 
 export default {
   name: 'ReportView',
   setup() {
     const route = useRoute()
     const id = Number(route.params.id)
+    const accessToken = getInterviewToken(id)
     const chartEl = ref(null)
+    let chart = null
     const state = reactive({
       report: null,
       error: '',
       evaluating: false,
-      chart: null,
     })
 
     function renderChart() {
       const dims = state.report?.dimensions || []
       const el = chartEl.value
       if (!el || !dims.length) return
-      state.chart = echarts.init(el)
-      state.chart.setOption({
+      if (!chart) chart = initChart(el)
+      chart.setOption({
         radar: {
           indicator: dims.map((d) => ({ name: d.name, max: 10 })),
           radius: '65%',
@@ -121,8 +123,12 @@ export default {
 
     async function load() {
       state.error = ''
+      if (!accessToken) {
+        state.error = '当前浏览器没有这份报告的访问凭证,请从对应面试页进入'
+        return
+      }
       try {
-        const data = await interviews.report(id)
+        const data = await interviews.report(id, accessToken)
         state.report = data.report
         await nextTick()
         renderChart()
@@ -134,7 +140,7 @@ export default {
     async function runEvaluate() {
       state.evaluating = true
       try {
-        const data = await interviews.evaluate(id)
+        const data = await interviews.evaluate(id, accessToken)
         state.report = data.report
         await nextTick()
         renderChart()
@@ -146,7 +152,7 @@ export default {
     }
 
     function onResize() {
-      state.chart?.resize()
+      chart?.resize()
     }
 
     onMounted(() => {
@@ -156,7 +162,8 @@ export default {
 
     onBeforeUnmount(() => {
       window.removeEventListener('resize', onResize)
-      state.chart?.dispose()
+      chart?.dispose()
+      chart = null
     })
 
     return { id, chartEl, state, runEvaluate }

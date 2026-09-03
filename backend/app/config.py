@@ -1,4 +1,4 @@
-"""应用配置:从环境变量 / .env 读取(.env 优先,避免被陈旧系统环境变量覆盖)。"""
+"""应用配置:显式环境变量优先，其次读取当前目录的 .env。"""
 from functools import lru_cache
 
 from pydantic_settings import (
@@ -24,13 +24,14 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ):
-        # .env 排在系统环境变量之前:本地调试/旧系统变量不会悄悄盖住项目配置
-        return init_settings, dotenv_settings, env_settings, file_secret_settings
+        # 遵循 12-factor 惯例：CI / Docker / 临时命令行变量应能覆盖 .env。
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     # LLM(千问 DashScope,OpenAI 兼容协议)
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
+    llm_timeout_seconds: float = 60.0
 
     # 岗位审核口令(官方后台 /review 页使用)
     review_passphrase: str = ""
@@ -48,6 +49,10 @@ class Settings(BaseSettings):
     # 面试规则(对齐技术方案 5.2)
     max_q_per_dim: int = 3       # 每维度最多追问次数
     max_total_q: int = 15        # 全场最多提问次数
+
+    # 上传限制（解析完成后原文件立即删除）
+    max_upload_bytes: int = 10 * 1024 * 1024
+    max_resume_text_chars: int = 100_000
 
     @property
     def cors_origins_list(self) -> list[str]:

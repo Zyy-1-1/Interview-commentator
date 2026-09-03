@@ -36,10 +36,22 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("status", "VARCHAR(16) DEFAULT 'approved'"),
         ("review_note", "VARCHAR(500)"),
     ],
+    "candidates": [
+        ("access_token_hash", "VARCHAR(64)"),
+    ],
     "interviews": [
         ("style", "VARCHAR(16) DEFAULT 'pro'"),
+        ("version", "INTEGER DEFAULT 1 NOT NULL"),
     ],
 }
+
+_INDEXES: tuple[tuple[str, str, str], ...] = (
+    ("jobs", "ix_jobs_status_created", "status, created_at"),
+    ("candidates", "ix_candidates_created", "created_at"),
+    ("interviews", "ix_interviews_job_status_created", "job_id, status, created_at"),
+    ("interviews", "ix_interviews_candidate_created", "candidate_id, created_at"),
+    ("interview_messages", "ix_messages_interview_id", "interview_id, id"),
+)
 
 
 def _migrate_added_columns() -> None:
@@ -57,12 +69,24 @@ def _migrate_added_columns() -> None:
                     logger.info("迁移: 表 %s 加列 %s", table, name)
 
 
+def _ensure_indexes() -> None:
+    """为大厅、后台列表和消息回放的高频过滤建立幂等索引。"""
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, name, columns in _INDEXES:
+            if insp.has_table(table):
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({columns})")
+                )
+
+
 def init_db() -> None:
     """建表(幂等)+ 补列迁移。"""
     from . import models  # noqa: F401  确保模型已注册
 
     Base.metadata.create_all(bind=engine)
     _migrate_added_columns()
+    _ensure_indexes()
 
 
 def get_db():

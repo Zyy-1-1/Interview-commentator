@@ -1,5 +1,6 @@
 """FastAPI 应用入口。"""
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,19 @@ from .db import init_db
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="面评家 API", version="0.1.0", description="AI 多轮结构化面试 Agent")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="面评家 API",
+    version="0.2.0",
+    description="AI 多轮结构化面试 Agent",
+    lifespan=lifespan,
+)
 
 # CORS
 app.add_middleware(
@@ -19,12 +32,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-
 
 @app.get("/api/health")
 def health():

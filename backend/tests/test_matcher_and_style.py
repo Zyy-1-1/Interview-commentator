@@ -58,7 +58,7 @@ def test_match_resume_to_job_ok(monkeypatch):
         jd_text="需要 Python",
         dimensions=DIMS,
     )
-    assert result["overall"] == 68
+    assert result["overall"] == 70
     assert result["dimension_scores"][0]["name"] == "Python 编程"
 
 
@@ -72,3 +72,28 @@ def test_match_resume_to_job_rejects_bad_output(monkeypatch):
             jd_text="y",
             dimensions=DIMS,
         )
+
+
+def test_matcher_clamps_scores_and_recomputes_overall(monkeypatch):
+    monkeypatch.setattr(
+        matcher,
+        "chat_json",
+        lambda **kw: {
+            "overall": 100,
+            "summary": "模型总分不可信",
+            "dimension_scores": [
+                {"name": "Python 编程", "resume_evidence": "Python", "score": 99}
+            ],
+            "highlights": [],
+            "gaps": [],
+        },
+    )
+    result = matcher.match_resume_to_job(
+        parsed_resume=None,
+        resume_text="Python",
+        job_title="x",
+        jd_text="y",
+        dimensions=DIMS,
+    )
+    assert result["dimension_scores"][0]["score"] == 10
+    assert result["overall"] == 100

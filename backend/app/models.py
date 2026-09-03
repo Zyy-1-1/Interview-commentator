@@ -42,6 +42,8 @@ class Candidate(Base):
     resume_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 简历解析 Agent 输出的结构化 JSON(见 resume_parser)
     parsed_resume: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 匿名访问令牌只保存 SHA-256，不保存可直接使用的明文。
+    access_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     interviews: Mapped[list["Interview"]] = relationship(back_populates="candidate")
@@ -51,6 +53,8 @@ class Interview(Base):
     __tablename__ = "interviews"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # SQLAlchemy 乐观锁版本号，避免两个并发回答覆盖同一份状态快照。
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"))
     # created | opening | probing | behavioral | candidate_qa | closing | finished | timeout
@@ -68,8 +72,12 @@ class Interview(Base):
     job: Mapped[Job] = relationship(back_populates="interviews")
     candidate: Mapped[Candidate] = relationship(back_populates="interviews")
     messages: Mapped[list["InterviewMessage"]] = relationship(
-        back_populates="interview", cascade="all, delete-orphan"
+        back_populates="interview",
+        cascade="all, delete-orphan",
+        order_by="InterviewMessage.id",
     )
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class InterviewMessage(Base):

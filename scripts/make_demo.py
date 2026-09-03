@@ -14,6 +14,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # 固定路径:无论从哪个目录调用,都以「后端目录」为基准
 # (使 sqlite:///./interview.db 解析到 backend/interview.db,.env 也能被读到)
 BACKEND_DIR = os.path.normpath(
@@ -25,11 +28,15 @@ os.chdir(BACKEND_DIR)
 from app.agents.interviewer.graph import DEFAULT_CLOSING  # noqa: E402
 from app.agents.interviewer.state import (  # noqa: E402
     ACTION_CLOSING,
+    PHASE_BEHAVIORAL,
     PHASE_CLOSING,
     PHASE_PROBING,
 )
-from app.db import SessionLocal  # noqa: E402
+from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import Candidate, Interview, InterviewMessage, Job  # noqa: E402
+from app.security import hash_candidate_token  # noqa: E402
+
+DEMO_ACCESS_TOKEN = "demo-local-access-token"
 
 
 # ============================================================ 岗位定义
@@ -370,15 +377,20 @@ def _build_state(interview_id, dimensions, rounds, finished):
         dim, agent_q, cand_a, *_ = r
         if i == 0:
             continue  # 开场白
-        history.append({"role": "candidate", "text": cand_a})
         history.append({"role": "agent", "text": agent_q})
+        history.append({"role": "candidate", "text": cand_a})
         dim_count[dim] = dim_count.get(dim, 0) + 1
         total += 1
         last_dim_idx = next((j for j, d in enumerate(dimensions) if d["name"] == dim), last_dim_idx)
 
+    current_type = dimensions[last_dim_idx].get("type") if dimensions else "hard"
     state = {
         "interview_id": interview_id,
-        "phase": PHASE_CLOSING if finished else PHASE_PROBING,
+        "phase": (
+            PHASE_CLOSING
+            if finished
+            else PHASE_BEHAVIORAL if current_type == "soft" else PHASE_PROBING
+        ),
         "dim_idx": last_dim_idx,
         "dimensions": dimensions,
         "dim_question_count": dim_count,
@@ -392,6 +404,7 @@ def _build_state(interview_id, dimensions, rounds, finished):
     if finished:
         state["action"] = ACTION_CLOSING
         state["closing_message"] = DEFAULT_CLOSING
+        state["history"].append({"role": "agent", "text": DEFAULT_CLOSING})
     return state
 
 
@@ -406,7 +419,7 @@ def _build_report(dimensions, rounds, summary_score, suggestion, strengths, risk
         scores.setdefault(dim, quality)
         evidence.setdefault(dim, [])
         if ev:
-            evidence[dim].append(f"应聘者原话:{ev}")
+            evidence[dim].append(ev)
     report_dims = [
         {
             "name": d["name"],
@@ -427,13 +440,13 @@ def _build_report(dimensions, rounds, summary_score, suggestion, strengths, risk
 
 def _record_messages(db, interview, dimensions, rounds, finished):
     """按真实留痕逻辑写入 interview_messages。"""
-    # 开场白 agent 消息(维度 = 首个维度,与真实 flow 一致)
+    # 开场白不归属能力维度。
     db.add(
         InterviewMessage(
             interview_id=interview.id,
             role="agent",
             text=rounds[0][1],
-            dimension=dimensions[0]["name"],
+            dimension=None,
             assess=None,
         )
     )
@@ -441,21 +454,21 @@ def _record_messages(db, interview, dimensions, rounds, finished):
         dim, agent_q, cand_a, quality, issue, ev = r
         if i == 0:
             continue
-        db.add(
-            InterviewMessage(
-                interview_id=interview.id,
-                role="candidate",
-                text=cand_a,
-                dimension=dim,
-                assess=None,
-            )
-        )
         assess = {"answered": True, "quality": quality, "issue": issue, "evidence": ev}
         db.add(
             InterviewMessage(
                 interview_id=interview.id,
                 role="agent",
                 text=agent_q,
+                dimension=dim,
+                assess=None,
+            )
+        )
+        db.add(
+            InterviewMessage(
+                interview_id=interview.id,
+                role="candidate",
+                text=cand_a,
                 dimension=dim,
                 assess=json.dumps(assess, ensure_ascii=False),
             )
@@ -474,6 +487,7 @@ def _record_messages(db, interview, dimensions, rounds, finished):
 
 
 def main():
+    init_db()
     db = SessionLocal()
     try:
         # 1) 清空(按外键顺序)
@@ -498,6 +512,7 @@ def main():
                 name=c["basic"]["name"],
                 resume_text=c["experience"][0]["summary"] if c["experience"] else "",
                 parsed_resume=json.dumps(c, ensure_ascii=False),
+                access_token_hash=hash_candidate_token(DEMO_ACCESS_TOKEN),
             )
             db.add(cand)
             db.flush()
@@ -507,6 +522,7 @@ def main():
         # 4) 面试
         now = datetime.now()
         created = 0
+        demo_interviews = []
         for spec in INTERVIEWS:
             job, dims = jobs[spec["job_title"]]
             cand = candidates[spec["candidate"]]
@@ -521,6 +537,7 @@ def main():
             )
             db.add(iv)
             db.flush()
+            demo_interviews.append((iv.id, finished))
 
             rounds = spec["rounds"]
             state = _build_state(iv.id, dims, rounds, finished)
@@ -543,7 +560,17 @@ def main():
         print(f"   - 岗位 {len(JOBS)} 个")
         print(f"   - 候选人 {total_candidates} 人")
         print(f"   - 面试 {created} 场(已完成 3 + 进行中 2,消息共 {total_messages} 条)")
-        print(f"   启动后端后,演示后台 http://localhost:5173/admin 即可查看。")
+        finished_id = next(i for i, finished in demo_interviews if finished)
+        ongoing_id = next(i for i, finished in demo_interviews if not finished)
+        print("   匿名凭证通过 URL fragment 传入,读取后会自动从地址栏清除:")
+        print(
+            "   - 已完成报告 "
+            f"http://localhost:5173/admin/reports/{finished_id}#access_token={DEMO_ACCESS_TOKEN}"
+        )
+        print(
+            "   - 进行中面试 "
+            f"http://localhost:5173/interview/{ongoing_id}#access_token={DEMO_ACCESS_TOKEN}"
+        )
     finally:
         db.close()
 
