@@ -138,9 +138,11 @@ export default {
     }
 
     async function runEvaluate() {
+      if (state.evaluating || !accessToken) return
       state.evaluating = true
       try {
         const data = await interviews.evaluate(id, accessToken)
+        state.error = ''
         state.report = data.report
         await nextTick()
         renderChart()
