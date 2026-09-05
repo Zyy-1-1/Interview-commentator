@@ -1,6 +1,7 @@
 """应用配置:显式环境变量优先，其次读取当前目录的 .env。"""
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -47,8 +48,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
     # 面试规则(对齐技术方案 5.2)
-    max_q_per_dim: int = 3       # 每维度最多追问次数
-    max_total_q: int = 15        # 全场最多提问次数
+    max_q_per_dim: int = Field(default=3, ge=1)  # 每维度最多追问次数
+    max_total_q: int = Field(default=15, ge=1)  # 全场最多提问次数
 
     # 上传限制（解析完成后原文件立即删除）
     max_upload_bytes: int = 10 * 1024 * 1024

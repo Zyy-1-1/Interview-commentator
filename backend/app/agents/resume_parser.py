@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..llm import chat_json
+from .output_validation import normalize_resume
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +81,12 @@ SYSTEM_PROMPT = """你是简历解析专家。从候选人简历文本中抽取�
 
 def parse_resume_text(resume_text: str, max_chars: int = 8000) -> dict[str, Any]:
     """LLM 结构化抽取简历(内部函数,可单测)。"""
-    return chat_json(
+    result = chat_json(
         system=SYSTEM_PROMPT,
         user=f"以下是候选人简历:\n\n{resume_text[:max_chars]}",
         temperature=0.1,
     )
+    return normalize_resume(result)
 
 
 def parse_resume_file(path: str | Path, max_chars: int = 8000) -> dict[str, Any]:

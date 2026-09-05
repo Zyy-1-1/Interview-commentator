@@ -121,6 +121,8 @@ def build_system_prompt(
     dimensions: list[dict[str, Any]],
     job_title: str = "本岗位",
     style: str | None = None,
+    max_q_per_dim: int = 3,
+    max_total_q: int = 15,
 ) -> str:
     """组装系统 prompt(含面试官人格 + 考察大纲 + 面试规则 + 输出协议)。"""
     persona_desc, persona_rules = build_persona(style)
@@ -136,7 +138,8 @@ def build_system_prompt(
         persona_desc=persona_desc,
         persona_rules=persona_rules,
         dimension_lines="\n".join(lines) if lines else "(暂无维度清单)",
-        output_protocol=OUTPUT_PROTOCOL,
+        output_protocol=OUTPUT_PROTOCOL.replace("最多追问 3 次", f"最多追问 {max_q_per_dim} 次")
+        + f"\n服务端全场提问上限为 {max_total_q} 次，以当前会话规则为准。",
     )
 
 

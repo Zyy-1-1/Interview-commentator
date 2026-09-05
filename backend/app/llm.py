@@ -41,19 +41,28 @@ def _extract_json(text: str) -> dict:
 
     优先 json.loads;失败则尝试剥离 ```json ... ``` 代码块后重试。
     """
+    def reject_constant(value: str):
+        raise ValueError("模型输出包含非有限数值")
+
+    def parse_object(content: str) -> dict:
+        value = json.loads(content, parse_constant=reject_constant)
+        if not isinstance(value, dict):
+            raise ValueError("模型输出必须为 JSON 对象")
+        return value
+
     try:
-        return json.loads(text)
+        return parse_object(text)
     except json.JSONDecodeError:
         pass
     # 处理被 ```json 包裹的输出
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
-        return json.loads(m.group(1))
+        return parse_object(m.group(1))
     # 最后尝试从第一个 { 到最后一个 } 截取
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return json.loads(text[start : end + 1])
-    raise ValueError(f"无法从模型输出解析 JSON: {text[:200]}")
+        return parse_object(text[start : end + 1])
+    raise ValueError("无法从模型输出解析 JSON 对象")
 
 
 def chat_text(
@@ -98,8 +107,8 @@ def chat_json(
             return _extract_json(resp.choices[0].message.content or "{}")
         except Exception as e:  # noqa: BLE001  解析失败/网络错误统一重试
             last_err = e
-            logger.warning("chat_json 第 %s 次失败: %s", attempt + 1, e)
-    raise RuntimeError(f"chat_json 多次失败: {last_err}")
+            logger.warning("chat_json 第 %s 次失败: %s", attempt + 1, type(e).__name__)
+    raise RuntimeError(f"模型请求失败: {type(last_err).__name__}") from None
 
 
 def _log_usage(operation: str, response: Any, started: float, *, attempt: int = 1) -> None:

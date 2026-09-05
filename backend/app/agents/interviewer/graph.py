@@ -16,6 +16,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from ...llm import chat_json
+from ..output_validation import finite_number, normalize_decision, text_value
 
 from .prompts import build_system_prompt, build_user_prompt
 from .state import (
@@ -53,16 +54,13 @@ def _normalize_assess(output: dict[str, Any]) -> dict[str, Any]:
     assess = output.get("assess")
     if not isinstance(assess, dict):
         return _fallback_assess()
-    try:
-        quality = float(assess.get("quality", 5))
-    except (TypeError, ValueError):
-        quality = 5.0
+    quality = finite_number(assess.get("quality"), 5.0)
     quality = max(0.0, min(10.0, quality))
     return {
-        "answered": bool(assess.get("answered", True)),
+        "answered": assess.get("answered", True) is True,
         "quality": int(quality) if quality.is_integer() else quality,
-        "issue": str(assess.get("issue", "") or ""),
-        "evidence": str(assess.get("evidence", "") or ""),
+        "issue": text_value(assess.get("issue")),
+        "evidence": text_value(assess.get("evidence")),
     }
 
 
@@ -70,7 +68,7 @@ def _normalize_action(action: Any) -> str:
     """服务端兜底:action 不在枚举内 → 修正为默认继续追问。"""
     if isinstance(action, str) and action in VALID_ACTIONS:
         return action
-    logger.warning("面试官返回非法 action: %r,回退为 %s", action, ACTION_CONTINUE_DIMENSION)
+    logger.warning("面试官 action 类型或枚举非法,回退为 %s", ACTION_CONTINUE_DIMENSION)
     return ACTION_CONTINUE_DIMENSION
 
 
@@ -191,12 +189,14 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
             state.get("dimensions") or [],
             job_title=state.get("job_title") or "本岗位",
             style=state.get("style"),
+            max_q_per_dim=state.get("max_q_per_dim", 3),
+            max_total_q=state.get("max_total_q", 15),
         )
         user = build_user_prompt(state)
         try:
-            output = judge(system, user) or {}
+            output = normalize_decision(judge(system, user))
         except Exception as e:  # noqa: BLE001  LLM 失败不影响状态机继续
-            logger.exception("面试官 LLM 调用失败: %s", e)
+            logger.warning("面试官调用或输出校验失败: %s", type(e).__name__)
             output = _fallback_output(state)
 
         # 2) 开场白轮(history 为空):只抛出问题,不判断质量、不计数,随后进入正式考察阶段

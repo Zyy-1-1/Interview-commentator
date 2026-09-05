@@ -94,6 +94,42 @@ def _seed(test_session) -> dict:
         return {"job_id": job.id, "candidate_id": cand.id}
 
 
+def test_interview_freezes_configured_limits_at_creation(test_db, monkeypatch):
+    ids = _seed(test_db)
+    monkeypatch.setattr(interviews_api.settings, "max_q_per_dim", 1)
+    monkeypatch.setattr(interviews_api.settings, "max_total_q", 2)
+    judge, calls = make_sequence([ACTION_CONTINUE_DIMENSION], ["继续说明"])
+    monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
+    monkeypatch.setattr(interviews_api, "_run_evaluation", lambda *args: None)
+    client = TestClient(app, headers=CANDIDATE_HEADERS)
+    response = client.post("/api/interviews", json=ids)
+    assert response.status_code == 200
+    interview_id = response.json()["id"]
+    with test_db() as db:
+        state = json.loads(db.get(Interview, interview_id).state)
+        assert state["max_q_per_dim"] == 1
+        assert state["max_total_q"] == 2
+
+    monkeypatch.setattr(interviews_api.settings, "max_q_per_dim", 8)
+    monkeypatch.setattr(interviews_api.settings, "max_total_q", 20)
+    url = f"/api/interviews/{interview_id}/message"
+    assert client.post(url, json={}).status_code == 200
+    assert "最多追问 1 次" in calls[0]["system"]
+    assert "全场提问上限为 2 次" in calls[0]["system"]
+    for _ in range(2):
+        assert client.post(url, json={"reply": "我的具体经历"}).status_code == 200
+    closing = client.post(url, json={"reply": "最后的回答"})
+    assert closing.status_code == 200
+    assert closing.json()["finished"] is True
+    assert len(calls) == 3
+
+    new_id = client.post("/api/interviews", json=ids).json()["id"]
+    with test_db() as db:
+        state = json.loads(db.get(Interview, new_id).state)
+        assert state["max_total_q"] == 20
+        assert state["max_q_per_dim"] == 8
+
+
 def test_full_interview_loop(test_db, monkeypatch):
     ids = _seed(test_db)
     # 开场 → 硬技能追问 → 行为维度 → 候选人提问 → 收尾。

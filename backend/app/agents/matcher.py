@@ -9,6 +9,7 @@ import json
 from typing import Any
 
 from ..llm import chat_json
+from .output_validation import finite_number, text_value
 
 SYSTEM_PROMPT = """你是资深招聘专家。给定「岗位考察维度清单」与「候选人结构化简历」,逐维度判断简历与岗位的匹配度。
 要求:
@@ -61,7 +62,7 @@ def match_resume_to_job(
         ),
         temperature=0.2,
     )
-    if not isinstance(result.get("dimension_scores"), list):
+    if not isinstance(result, dict) or not isinstance(result.get("dimension_scores"), list):
         raise ValueError("匹配分析缺少 dimension_scores")
     return _normalize_match(result, dimensions)
 
@@ -85,17 +86,11 @@ def _normalize_match(
         if not name:
             continue
         raw = raw_by_name.get(name, {})
-        try:
-            score = max(0.0, min(10.0, float(raw.get("score", 0))))
-        except (TypeError, ValueError):
-            score = 0.0
+        score = max(0.0, min(10.0, finite_number(raw.get("score"))))
         score = round(score, 1)
-        evidence = str(raw.get("resume_evidence") or "简历未提及").strip()[:500]
+        evidence = text_value(raw.get("resume_evidence"), "简历未提及") or "简历未提及"
         scores.append({"name": name, "resume_evidence": evidence, "score": score})
-        try:
-            weight = max(0.0, float(expected.get("weight", 0)))
-        except (TypeError, ValueError):
-            weight = 0.0
+        weight = max(0.0, min(1_000_000.0, finite_number(expected.get("weight"))))
         weighted += score * weight
         weight_total += weight
     if not scores:
@@ -110,7 +105,7 @@ def _normalize_match(
         overall = int(overall)
     return {
         "overall": overall,
-        "summary": str(result.get("summary") or "暂无整体分析")[:500],
+        "summary": text_value(result.get("summary"), "暂无整体分析"),
         "dimension_scores": scores,
         "highlights": _string_list(result.get("highlights")),
         "gaps": _string_list(result.get("gaps")),
@@ -120,4 +115,4 @@ def _normalize_match(
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [str(item).strip()[:500] for item in value if str(item).strip()][:6]
+    return [text_value(item) for item in value if text_value(item)][:6]

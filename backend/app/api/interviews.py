@@ -21,6 +21,7 @@ from ..agents.evaluator import evaluate
 from ..agents.interviewer.graph import build_llm_graph, compute_progress
 from ..agents.interviewer.state import PHASE_CANDIDATE_QA, PHASE_CLOSING, initial_state
 from ..db import get_db
+from ..config import settings
 from ..models import Candidate, Interview, InterviewMessage, Job
 from ..schemas import (
     InterviewCreate,
@@ -61,6 +62,8 @@ def _load_state(interview: Interview) -> dict:
             dimensions=dims,
             job_title=interview.job.title or "本岗位",
             style=interview.style or "pro",
+            max_q_per_dim=settings.max_q_per_dim,
+            max_total_q=settings.max_total_q,
         )
     return state
 
@@ -184,6 +187,8 @@ def create_interview(
         job_id=job.id, candidate_id=cand.id, status="created", style=body.style
     )
     db.add(interview)
+    db.flush()
+    interview.state = json.dumps(_load_state(interview), ensure_ascii=False)
     db.commit()
     db.refresh(interview)
     return interview
