@@ -13,16 +13,17 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
-from ..agents.evaluator import evaluate
 from ..agents.interviewer.graph import build_llm_graph, compute_progress
 from ..agents.interviewer.state import PHASE_CANDIDATE_QA, PHASE_CLOSING, initial_state
 from ..db import get_db
 from ..config import settings
 from ..models import Candidate, Interview, InterviewMessage, Job
+from ..report_jobs import queue_evaluation
 from ..schemas import (
     InterviewCreate,
     InterviewListItem,
@@ -100,32 +101,6 @@ def _persist(
 def _current_dim_name(result: dict) -> str | None:
     progress = compute_progress(result)
     return progress.get("current_dimension") or None
-
-
-def _run_evaluation(interview: Interview, db: Session) -> None:
-    """调用评估 Agent,报告写入 Interview.report。失败不抛(留空可手动重试)。"""
-    try:
-        job = interview.job
-        cand = interview.candidate
-        session_state = _load_state(interview)
-        dims = session_state["dimensions"]
-        parsed = json.loads(cand.parsed_resume) if cand.parsed_resume else None
-        messages = [
-            {"id": m.id, "role": m.role, "text": m.text, "dimension": m.dimension}
-            for m in interview.messages
-        ]
-        report = evaluate(
-            job_title=session_state.get("job_title") or job.title,
-            dimensions=dims,
-            parsed_resume=json.dumps(parsed, ensure_ascii=False) if parsed else None,
-            messages=messages,
-        )
-        interview.report = json.dumps(report, ensure_ascii=False)
-        db.commit()
-        logger.info("面试 %s 评估完成:总分 %s", interview.id, report.get("summary_score"))
-    except Exception as e:  # noqa: BLE001  评估失败不中断面试流程,报告留空可重试
-        db.rollback()
-        logger.warning("面试 %s 评估失败: %s", interview.id, type(e).__name__)
 
 
 def _to_turn(result: dict) -> InterviewTurn:
@@ -283,6 +258,7 @@ def get_interview(
 def send_message(
     interview_id: int,
     body: InterviewMessageIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate_token: Annotated[str | None, Header(alias=CANDIDATE_HEADER)] = None,
     admin_passphrase: Annotated[str | None, Header(alias=REVIEW_HEADER)] = None,
@@ -367,9 +343,9 @@ def send_message(
         request_reply=reply,
     )
     committed_turn = _commit_turn(db, interview, turn, request_id, reply)
-    # 收尾后自动生成评估报告
+    # 收尾已落库，响应发送后在后台线程生成报告。
     if result.get("finished"):
-        _run_evaluation(interview, db)
+        queue_evaluation(interview, db, background_tasks)
     return committed_turn
 
 
@@ -442,6 +418,7 @@ def get_state(
 @router.post("/{interview_id}/evaluate")
 def trigger_evaluate(
     interview_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate_token: Annotated[str | None, Header(alias=CANDIDATE_HEADER)] = None,
     admin_passphrase: Annotated[str | None, Header(alias=REVIEW_HEADER)] = None,
@@ -453,9 +430,5 @@ def trigger_evaluate(
     _authorize_interview(interview, candidate_token, admin_passphrase)
     if interview.status != "finished":
         raise HTTPException(409, "面试尚未结束,不能生成最终报告")
-    if interview.report:
-        return {"interview_id": interview_id, "report": json.loads(interview.report)}
-    _run_evaluation(interview, db)
-    if not interview.report:
-        raise HTTPException(500, "评估失败,请稍后重试")
-    return {"interview_id": interview_id, "report": json.loads(interview.report)}
+    payload = queue_evaluation(interview, db, background_tasks)
+    return JSONResponse(payload, status_code=200 if payload["status"] == "ready" else 202)

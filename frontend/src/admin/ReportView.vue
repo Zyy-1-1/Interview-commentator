@@ -5,11 +5,15 @@
       <router-link class="back" to="/">← 返回岗位大厅</router-link>
     </header>
 
-    <div v-if="state.error" class="empty">
-      <p>{{ state.error }}</p>
-      <button class="primary" :disabled="state.evaluating" @click="runEvaluate">
-        {{ state.evaluating ? '评估中…' : '立即生成评估报告' }}
+    <div v-if="!state.report" class="empty" aria-live="polite">
+      <p>{{ state.error || statusText }}</p>
+      <button v-if="state.canRetry" class="primary" :disabled="state.evaluating" @click="runEvaluate">
+        {{ state.evaluating ? '正在提交…' : '生成或重试报告' }}
       </button>
+      <button v-if="state.error && !state.canRetry && !state.blocked" class="primary"
+        :disabled="state.loading" @click="load">重新加载状态</button>
+      <router-link v-if="state.status === 'not_started' && !state.canRetry"
+        :to="`/interview/${id}`">返回面试</router-link>
     </div>
 
     <div v-else-if="state.report" class="content">
@@ -116,14 +120,28 @@ export default {
     const accessToken = getInterviewToken(id)
     const chartEl = ref(null)
     let chart = null
+    let disposed = false
+    let pollTimer = null
     const state = reactive({
       report: null,
       error: '',
       evaluating: false,
+      loading: false,
+      status: 'loading',
+      canRetry: false,
+      blocked: false,
       evidence: null,
       evidenceError: '',
       evidenceLoading: false,
     })
+    const statusText = computed(() => ({
+      loading: '正在读取报告状态…',
+      not_started: state.canRetry ? '面试已结束，可以生成评估报告。' : '面试尚未结束，完成后即可生成报告。',
+      pending: '评估任务已提交，正在等待生成。你可以稍后回来查看。',
+      running: '正在分析本次回答，页面会自动更新。',
+      failed: '报告生成失败，可以重试。',
+      ready: '报告已生成。',
+    }[state.status] || '正在读取报告状态…'))
     const hasCompleteScores = computed(() => {
       const dims = state.report?.dimensions || []
       return dims.length > 0 && dims.every((d) => Number.isFinite(d.score))
@@ -141,6 +159,7 @@ export default {
       state.evidenceError = ''
       try {
         const messages = await interviews.messages(id, accessToken)
+        if (disposed) return
         const index = messages.findIndex((m) => m.id === ref.message_id && m.role === 'candidate')
         if (index < 0) throw new Error('未找到对应的候选人回答')
         state.evidence = {
@@ -160,7 +179,7 @@ export default {
       const el = chartEl.value
       chart?.dispose()
       chart = null
-      if (!el || !hasCompleteScores.value) return
+      if (disposed || !el || !hasCompleteScores.value) return
       chart = initChart(el)
       chart.setOption({
         radar: {
@@ -183,33 +202,62 @@ export default {
       })
     }
 
+    function clearPoll() {
+      if (pollTimer != null) window.clearTimeout(pollTimer)
+      pollTimer = null
+    }
+
+    async function applyStatus(data) {
+      if (disposed) return
+      state.report = data.report || null
+      state.status = data.status || (data.report ? 'ready' : 'not_started')
+      state.canRetry = !!data.can_retry
+      state.error = data.error || ''
+      state.blocked = false
+      clearPoll()
+      if (state.report) {
+        await nextTick()
+        renderChart()
+      } else if (['pending', 'running'].includes(state.status)) {
+        pollTimer = window.setTimeout(load, 2000)
+      }
+    }
+
+    function showRequestError(error) {
+      if (disposed) return
+      state.error = error.message || '读取失败，请重试。'
+      state.blocked = [401, 403, 404].includes(error.status)
+      state.canRetry = false
+    }
+
     async function load() {
+      if (disposed || state.loading) return
+      clearPoll()
       state.error = ''
       if (!accessToken) {
+        state.blocked = true
         state.error = '当前浏览器没有这份报告的访问凭证,请从对应面试页进入'
         return
       }
+      state.loading = true
       try {
-        const data = await interviews.report(id, accessToken)
-        state.report = data.report
-        await nextTick()
-        renderChart()
+        await applyStatus(await interviews.report(id, accessToken))
       } catch (e) {
-        state.error = '报告尚未生成,面试可能未结束或评估失败。'
+        showRequestError(e)
+      } finally {
+        state.loading = false
       }
     }
 
     async function runEvaluate() {
-      if (state.evaluating || !accessToken) return
+      if (disposed || state.evaluating || !accessToken || !state.canRetry) return
+      clearPoll()
       state.evaluating = true
+      state.error = ''
       try {
-        const data = await interviews.evaluate(id, accessToken)
-        state.error = ''
-        state.report = data.report
-        await nextTick()
-        renderChart()
+        await applyStatus(await interviews.evaluate(id, accessToken))
       } catch (e) {
-        state.error = `评估失败:${e.message}`
+        showRequestError(e)
       } finally {
         state.evaluating = false
       }
@@ -225,12 +273,14 @@ export default {
     })
 
     onBeforeUnmount(() => {
+      disposed = true
+      clearPoll()
       window.removeEventListener('resize', onResize)
       chart?.dispose()
       chart = null
     })
 
-    return { id, chartEl, state, runEvaluate, hasCompleteScores, dimensionLabel, showEvidence }
+    return { id, chartEl, state, load, runEvaluate, statusText, hasCompleteScores, dimensionLabel, showEvidence }
   },
 }
 </script>

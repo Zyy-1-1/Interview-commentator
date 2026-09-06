@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Interview
+from ..report_jobs import report_payload
 from ..security import (
     CANDIDATE_HEADER,
     REVIEW_HEADER,
@@ -30,8 +31,4 @@ def get_report(
         candidate_token,
         admin_passphrase,
     )
-    if not interview.report:
-        raise HTTPException(404, "报告尚未生成(面试未结束或评估未执行)")
-    import json
-
-    return {"interview_id": interview_id, "report": json.loads(interview.report)}
+    return report_payload(interview)

@@ -6,12 +6,19 @@ const test = require('node:test')
 const Vue = require('vue')
 const { parse } = require('vue/compiler-sfc')
 
-global.window = { addEventListener() {}, removeEventListener() {} }
+const reportTimers = new Map()
+let timerSequence = 0
+global.window = {
+  addEventListener() {}, removeEventListener() {},
+  setTimeout(callback) { reportTimers.set(++timerSequence, callback); return timerSequence },
+  clearTimeout(id) { reportTimers.delete(id) },
+}
+global.location = { hash: '' }
 
 function makeNode(type, text = '') {
   return Vue.markRaw({
     type, text, props: {}, children: [], parent: null,
-    addEventListener() {}, removeEventListener() {},
+    addEventListener() {}, removeEventListener() {}, style: {}, focus() {}, scrollTo() {},
   })
 }
 const renderer = Vue.createRenderer({
@@ -139,7 +146,7 @@ test('换简历后忽略旧请求迟到的结果', async (t) => {
 
 test('报告重试成功后清除错误并显示报告与图表', async (t) => {
   const page = mount('admin/ReportView.vue', { interviews: {
-    report: async () => { throw new Error('Report missing') },
+    report: async () => ({ status: 'failed', report: null, error: 'Temporary failure', can_retry: true }),
     evaluate: async () => ({ report }),
   } })
   t.after(page.unmount)
@@ -189,6 +196,76 @@ test('报告证据可以按编号展开对应的原始问答', async (t) => {
   await settle()
   assert.match(visibleText(page.root), /Full original answer and details/)
   assert.equal(page.vm.state.evidence.question, 'Explain the decision')
+})
+
+test('报告生成中持续查询，成功后停止轮询且不重复发起评估', async (t) => {
+  let reads = 0
+  let evaluations = 0
+  const page = mount('admin/ReportView.vue', { interviews: {
+    report: async () => ++reads === 1
+      ? { status: 'running', report: null, can_retry: false }
+      : { status: 'ready', report },
+    evaluate: async () => { evaluations++; return { status: 'pending' } },
+  } })
+  t.after(page.unmount)
+  await settle()
+  assert.match(visibleText(page.root), /正在分析本次回答/)
+  assert.equal(reportTimers.size, 1)
+  await page.vm.runEvaluate()
+  assert.equal(evaluations, 0)
+  const poll = [...reportTimers.values()][0]
+  await poll()
+  await settle()
+  assert.equal(page.vm.state.report.summary_score, 70)
+  assert.equal(reportTimers.size, 0)
+})
+
+test('报告状态的鉴权失败不显示生成按钮', async (t) => {
+  let evaluations = 0
+  const page = mount('admin/ReportView.vue', { interviews: {
+    report: async () => { const e = new Error('凭证无效'); e.status = 401; throw e },
+    evaluate: async () => { evaluations++ },
+  } })
+  t.after(page.unmount)
+  await settle()
+  await page.vm.runEvaluate()
+  assert.equal(page.vm.state.blocked, true)
+  assert.equal(evaluations, 0)
+  assert.doesNotMatch(visibleText(page.root), /生成或重试报告/)
+})
+
+test('离开报告页后清理轮询，迟到响应不再绘图', async () => {
+  const page = mount('admin/ReportView.vue', { interviews: {
+    report: async () => ({ status: 'pending', report: null }),
+  } })
+  await settle()
+  assert.equal(reportTimers.size, 1)
+  page.unmount()
+  assert.equal(reportTimers.size, 0)
+  let finish
+  const late = mount('admin/ReportView.vue', { interviews: {
+    report: () => new Promise((resolve) => { finish = resolve }),
+  } })
+  late.unmount()
+  finish({ report })
+  await settle()
+  assert.equal(late.charts.length, 0)
+})
+
+test('面试结束页显示报告进度入口，不提前宣布报告生成成功', async (t) => {
+  const page = mount('candidate/InterviewView.vue', {
+    DigitalHuman: { render: () => null },
+    useSpeech: () => ({ supported: false, state: {}, speak() {} }),
+    interviews: {
+      state: async () => ({ status: 'finished', progress: { phase: 'CLOSING' } }),
+      get: async () => ({ style: 'pro' }),
+      messages: async () => [{ role: 'agent', text: '面试结束，谢谢参与' }],
+    },
+  })
+  t.after(page.unmount)
+  await settle()
+  assert.match(visibleText(page.root), /查看报告进度与结果/)
+  assert.doesNotMatch(visibleText(page.root), /报告已生成/)
 })
 
 test('刷新报告页可以直接加载已有结果', async (t) => {

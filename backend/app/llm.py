@@ -11,7 +11,7 @@ import re
 import time
 from typing import Any, Optional
 
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
 
 from .config import settings
 
@@ -89,12 +89,18 @@ def chat_json(
     temperature: float = 0.2,
     max_retries: int = 2,
 ) -> dict[str, Any]:
-    """强制模型输出 JSON,失败自动重试。用于结构化抽取/决策协议。"""
+    """结构化调用共用重试预算，剩余时间收紧每次网络超时。"""
+    client = get_client()
+    deadline = time.perf_counter() + settings.llm_total_timeout_seconds
     last_err: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         started = time.perf_counter()
+        remaining = deadline - started
+        if remaining <= 0:
+            break
         try:
-            resp = get_client().chat.completions.create(
+            resp = client.chat.completions.create(
+                timeout=min(settings.llm_timeout_seconds, remaining),
                 model=settings.dashscope_model,
                 messages=[
                     {"role": "system", "content": system},
@@ -108,6 +114,8 @@ def chat_json(
         except Exception as e:  # noqa: BLE001  解析失败/网络错误统一重试
             last_err = e
             logger.warning("chat_json 第 %s 次失败: %s", attempt + 1, type(e).__name__)
+            if isinstance(e, APIStatusError) and e.status_code < 500 and e.status_code != 429:
+                break  # 鉴权/参数错误重试也不会成功。
     raise RuntimeError(f"模型请求失败: {type(last_err).__name__}") from None
 
 

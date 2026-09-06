@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agents import evaluator
+from app import report_jobs
 from app.agents.interviewer.graph import build_graph
 from app.agents.interviewer.state import (
     ACTION_CLOSING,
@@ -100,7 +101,7 @@ def test_interview_freezes_configured_limits_at_creation(test_db, monkeypatch):
     monkeypatch.setattr(interviews_api.settings, "max_total_q", 2)
     judge, calls = make_sequence([ACTION_CONTINUE_DIMENSION], ["继续说明"])
     monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
-    monkeypatch.setattr(interviews_api, "_run_evaluation", lambda *args: None)
+    monkeypatch.setattr(report_jobs, "run_evaluation", lambda *args: None)
     client = TestClient(app, headers=CANDIDATE_HEADERS)
     response = client.post("/api/interviews", json=ids)
     assert response.status_code == 200

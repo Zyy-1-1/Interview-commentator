@@ -26,7 +26,7 @@
       ▼           │  · 服务端兜底:action 校验 + 轮次上限
 动态追问 ◄────────┘
       │
-收尾 → 评估 Agent 一次调用 → 个人竞争力报告 JSON
+收尾 → 领取后台评估任务 → 个人竞争力报告 JSON（可查询状态和重试）
       ▼
 查看报告 /admin/reports/{id}(雷达图 + 原话证据 + 提升建议)
 
@@ -199,7 +199,12 @@ docker compose ps                  # backend 应显示 healthy
 | POST | `/api/interviews/{id}/message` | 答题闭环;需令牌,支持幂等 `request_id` |
 | GET | `/api/interviews/{id}/messages` | 逐轮消息;需候选人令牌 |
 | GET | `/api/interviews/{id}/state` | 会话进度快照;需候选人令牌 |
-| GET | `/api/interviews/{id}/report` | 个人竞争力评估报告;需候选人令牌 |
+| GET | `/api/interviews/{id}/report` | 报告及生成状态；需候选人令牌，未生成时 report 为 null |
+| POST | `/api/interviews/{id}/evaluate` | 已结束面试补做或重试评估；新任务返回 202，已有报告返回 200 |
+
+报告状态为 `not_started / pending / running / ready / failed`，`can_retry` 表示当前是否可发起评估。收尾请求落库后即安排后台线程评估，页面每 2 秒查询状态。数据库领取与任务编号阻止同一报告并发重复调用及旧任务覆盖新结果。当前使用进程内后台任务：服务重启不会自动恢复未完成任务，超过 120 秒（或模型总预算加 30 秒，取较大值）后可在报告页手动重试；查询状态不会触发模型。多节点部署或大规模队列需要独立任务系统。
+
+模型默认单次网络超时 `LLM_TIMEOUT_SECONDS=25`，多次尝试共享 `LLM_TOTAL_TIMEOUT_SECONDS=75` 秒重试预算（最大 80）；每次请求使用剩余预算收紧超时，鉴权与参数错误不重复请求。网络库的超时不等同于严格的进程执行时限。浏览器请求超时为 90 秒，生成报告已从答题请求中分离。
 
 ## 八、测试
 

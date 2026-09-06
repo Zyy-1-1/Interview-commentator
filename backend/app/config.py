@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
-    llm_timeout_seconds: float = 60.0
+    llm_timeout_seconds: float = Field(default=25.0, gt=0, le=80)
+    llm_total_timeout_seconds: float = Field(default=75.0, gt=0, le=80)
 
     # 岗位审核口令(官方后台 /review 页使用)
     review_passphrase: str = ""
