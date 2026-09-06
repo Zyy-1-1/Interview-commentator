@@ -103,6 +103,7 @@
         <button class="primary big" :disabled="state.starting" @click="start">
           {{ state.starting ? '创建面试中…' : `以「${styleName}」开始模拟面试 →` }}
         </button>
+        <p v-if="state.error" class="err" role="alert">{{ state.error }}</p>
       </section>
     </template>
   </div>
@@ -148,6 +149,8 @@ export default {
     const fileInput = ref(null)
     const chartEl = ref(null)
     let chart = null
+    let matchRequestId = 0
+    let disposed = false
 
     const state = reactive({
       job: null,
@@ -211,27 +214,38 @@ export default {
       })
     }
 
+    function disposeChart() {
+      chart?.dispose()
+      chart = null
+    }
+
     async function loadMatch() {
+      if (!state.cand || disposed) return
+      const requestId = ++matchRequestId
+      disposeChart()
+      match.value = null
       matchLoading.value = true
       state.error = ''
       try {
-        match.value = await candidates.match(
+        const result = await candidates.match(
           state.cand.id,
           jobId,
           state.cand.access_token
         )
-        await nextTick()
-        renderChart()
+        if (requestId === matchRequestId && !disposed) match.value = result
       } catch (e) {
-        state.error = e.message
-        match.value = null
+        if (requestId === matchRequestId && !disposed) state.error = e.message
       } finally {
-        matchLoading.value = false
+        if (requestId === matchRequestId && !disposed) {
+          matchLoading.value = false
+          await nextTick()
+          if (requestId === matchRequestId && !disposed) renderChart()
+        }
       }
     }
 
     async function handleFile(file) {
-      if (!file) return
+      if (!file || state.uploading || disposed) return
       state.uploading = true
       state.error = ''
       try {
@@ -255,7 +269,9 @@ export default {
     }
 
     function reupload() {
-      chart?.clear()
+      matchRequestId++
+      matchLoading.value = false
+      disposeChart()
       state.cand = null
       match.value = null
       state.error = ''
@@ -292,9 +308,10 @@ export default {
     }
 
     onBeforeUnmount(() => {
+      disposed = true
+      matchRequestId++
       window.removeEventListener('resize', onResize)
-      chart?.dispose()
-      chart = null
+      disposeChart()
     })
 
     return {

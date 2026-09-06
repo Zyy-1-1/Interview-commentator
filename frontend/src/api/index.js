@@ -28,13 +28,15 @@ async function request(path, options = {}) {
     if (error?.name === 'AbortError') {
       throw new Error('请求超时,请稍后重试')
     }
-    throw new Error('网络异常,请确认后端服务已启动(localhost:8000)')
+    throw new Error('网络异常，请确认服务连接后重试')
   } finally {
     window.clearTimeout(timer)
   }
   const data = await resp.json().catch(() => ({}))
   if (!resp.ok) {
-    throw new Error(data.detail || `请求失败(${resp.status})`)
+    const error = new Error(typeof data.detail === 'string' ? data.detail : `请求失败(${resp.status})`)
+    error.status = resp.status
+    throw error
   }
   return data
 }

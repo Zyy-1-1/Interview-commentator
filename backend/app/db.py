@@ -42,6 +42,10 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "interviews": [
         ("style", "VARCHAR(16) DEFAULT 'pro'"),
         ("version", "INTEGER DEFAULT 1 NOT NULL"),
+        ("report_status", "VARCHAR(16) DEFAULT 'not_started' NOT NULL"),
+        ("report_task_id", "VARCHAR(32)"),
+        ("report_requested_at", "DATETIME"),
+        ("report_error", "VARCHAR(255)"),
     ],
 }
 

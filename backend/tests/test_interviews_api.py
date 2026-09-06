@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agents import evaluator
+from app import report_jobs
 from app.agents.interviewer.graph import build_graph
 from app.agents.interviewer.state import (
     ACTION_CLOSING,
@@ -94,6 +95,42 @@ def _seed(test_session) -> dict:
         return {"job_id": job.id, "candidate_id": cand.id}
 
 
+def test_interview_freezes_configured_limits_at_creation(test_db, monkeypatch):
+    ids = _seed(test_db)
+    monkeypatch.setattr(interviews_api.settings, "max_q_per_dim", 1)
+    monkeypatch.setattr(interviews_api.settings, "max_total_q", 2)
+    judge, calls = make_sequence([ACTION_CONTINUE_DIMENSION], ["继续说明"])
+    monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
+    monkeypatch.setattr(report_jobs, "run_evaluation", lambda *args: None)
+    client = TestClient(app, headers=CANDIDATE_HEADERS)
+    response = client.post("/api/interviews", json=ids)
+    assert response.status_code == 200
+    interview_id = response.json()["id"]
+    with test_db() as db:
+        state = json.loads(db.get(Interview, interview_id).state)
+        assert state["max_q_per_dim"] == 1
+        assert state["max_total_q"] == 2
+
+    monkeypatch.setattr(interviews_api.settings, "max_q_per_dim", 8)
+    monkeypatch.setattr(interviews_api.settings, "max_total_q", 20)
+    url = f"/api/interviews/{interview_id}/message"
+    assert client.post(url, json={}).status_code == 200
+    assert "最多追问 1 次" in calls[0]["system"]
+    assert "全场提问上限为 2 次" in calls[0]["system"]
+    for _ in range(2):
+        assert client.post(url, json={"reply": "我的具体经历"}).status_code == 200
+    closing = client.post(url, json={"reply": "最后的回答"})
+    assert closing.status_code == 200
+    assert closing.json()["finished"] is True
+    assert len(calls) == 3
+
+    new_id = client.post("/api/interviews", json=ids).json()["id"]
+    with test_db() as db:
+        state = json.loads(db.get(Interview, new_id).state)
+        assert state["max_total_q"] == 20
+        assert state["max_q_per_dim"] == 8
+
+
 def test_full_interview_loop(test_db, monkeypatch):
     ids = _seed(test_db)
     # 开场 → 硬技能追问 → 行为维度 → 候选人提问 → 收尾。
@@ -125,6 +162,11 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert r.status_code == 200, r.text
     iv_id = r.json()["id"]
     assert r.json()["status"] == "created"
+    # 创建后重新分析岗位不能改变本场的考察与评估大纲。
+    with test_db() as db:
+        job = db.get(Job, ids["job_id"])
+        job.dimensions = json.dumps([{"name": "新岗位维度", "weight": 1}])
+        db.commit()
 
     # 1) 开场白(空 reply)
     r = client.post(
@@ -220,6 +262,7 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert msgs[-2]["assess"]["evidence"] == "e"
     assert msgs[-1]["assess"] is None
     # 回答归属调用前的问题维度；反向提问和收尾不归属能力维度。
+    assert msgs[1]["dimension"] is None  # 自我介绍不算第一项技能已考察。
     assert msgs[3]["dimension"] == "Python 编程"
     assert msgs[4]["dimension"] == "沟通表达"
     assert msgs[5]["dimension"] == "沟通表达"
@@ -241,7 +284,34 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert r.status_code == 200, r.text
     report = r.json()["report"]
     assert report["summary_score"] == 76
+    assert report["coverage"]["percent"] == 100
+    assert report["dimensions"][0]["evidence_refs"][0]["message_id"] == msgs[3]["id"]
     assert report["suggestion"] == "建议进入二面"
+
+
+def test_resume_context_is_frozen_and_available_in_real_api_prompts(test_db, monkeypatch):
+    ids = _seed(test_db)
+    with test_db() as db:
+        candidate = db.get(Candidate, ids["candidate_id"])
+        candidate.resume_text = "校园通知平台 asyncio"
+        candidate.parsed_resume = json.dumps({"projects": [{"name": "校园通知平台", "tech_stack": ["asyncio"]}]})
+        db.commit()
+    judge, calls = make_sequence([ACTION_CONTINUE_DIMENSION], ["请介绍项目经历"])
+    monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
+    client = TestClient(app, headers=CANDIDATE_HEADERS)
+    first_id = client.post("/api/interviews", json=ids).json()["id"]
+    with test_db() as db:
+        candidate = db.get(Candidate, ids["candidate_id"])
+        candidate.resume_text = "课程预约系统 MySQL"
+        candidate.parsed_resume = json.dumps({"projects": [{"name": "课程预约系统", "tech_stack": ["MySQL"]}]})
+        db.commit()
+    assert client.post(f"/api/interviews/{first_id}/message", json={}).status_code == 200
+    assert "校园通知平台" in calls[0]["user"]
+    assert "课程预约系统" not in calls[0]["user"]
+    second_id = client.post("/api/interviews", json=ids).json()["id"]
+    assert client.post(f"/api/interviews/{second_id}/message", json={}).status_code == 200
+    assert "课程预约系统" in calls[1]["user"]
+    assert "校园通知平台" not in calls[1]["user"]
 
 
 def test_style_flows_into_prompts(test_db, monkeypatch):
@@ -264,6 +334,16 @@ def test_style_flows_into_prompts(test_db, monkeypatch):
     assert r.status_code == 200
     assert "高老师" in calls[0]["system"]
     assert "压力面试官" in calls[0]["system"]
+
+
+@pytest.mark.parametrize("dimensions", ["[]", "{}", "broken JSON"])
+def test_cannot_start_without_a_valid_job_outline(test_db, dimensions):
+    ids = _seed(test_db)
+    with test_db() as db:
+        db.get(Job, ids["job_id"]).dimensions = dimensions
+        db.commit()
+    response = TestClient(app, headers=CANDIDATE_HEADERS).post("/api/interviews", json=ids)
+    assert response.status_code == 422
 
 
 def test_invalid_style_rejected(test_db):

@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..agents.matcher import match_resume_to_job
 from ..agents.resume_parser import parse_resume_file
+from ..agents.output_validation import normalize_resume
 from ..config import settings
 from ..db import get_db
 from ..models import Candidate, Job
@@ -106,17 +107,18 @@ async def upload_candidate(file: UploadFile, db: Session = Depends(get_db)):
         parsed = await run_in_threadpool(parse_resume_file, path)
         if not isinstance(parsed, dict):
             raise ValueError("解析结果格式错误")
+        text = parsed.get("_source_text")
+        parsed = normalize_resume(parsed)
     except Exception as e:  # noqa: BLE001
         if isinstance(e, HTTPException):
             raise
-        logger.warning("简历解析失败 %s: %s", path.name, e)
+        logger.warning("简历解析失败(%s): %s", path.name if path else "upload", type(e).__name__)
         raise HTTPException(422, "简历解析失败,请检查文件是否可正常打开后重试") from e
     finally:
         if path is not None:
             path.unlink(missing_ok=True)
         await file.close()
 
-    text = parsed.pop("_source_text", None)
     access_token, access_token_hash = issue_candidate_token()
     cand = Candidate(
         name=parsed.get("basic", {}).get("name"),

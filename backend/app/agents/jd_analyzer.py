@@ -6,6 +6,7 @@
 from typing import Any
 
 from ..llm import chat_json
+from .output_validation import finite_number, text_value
 
 SYSTEM_PROMPT = """你是岗位需求分析师。把一份岗位 JD 拆解为可考察的能力维度清单。
 要求:
@@ -34,10 +35,12 @@ def analyze_jd(jd_text: str, max_chars: int = 6000) -> dict[str, Any]:
         user=f"以下是岗位 JD:\n\n{jd_text[:max_chars]}",
         temperature=0.2,
     )
+    if not isinstance(result, dict):
+        raise ValueError("JD 分析必须返回 JSON 对象")
     dimensions = _normalize_dimensions(result.get("dimensions"))
     return {
         "dimensions": dimensions,
-        "junior_level": bool(result.get("junior_level", False)),
+        "junior_level": result.get("junior_level") is True,
     }
 
 
@@ -50,15 +53,12 @@ def _normalize_dimensions(value: Any) -> list[dict[str, Any]]:
     for item in value[:10]:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name") or "").strip()[:100]
+        name = text_value(item.get("name"), limit=100)
         if not name or name in seen:
             continue
         seen.add(name)
         dim_type = "soft" if item.get("type") == "soft" else "hard"
-        try:
-            weight = max(0.0, float(item.get("weight", 0)))
-        except (TypeError, ValueError):
-            weight = 0.0
+        weight = max(0.0, min(1_000_000.0, finite_number(item.get("weight"))))
         keywords = item.get("keywords")
         if not isinstance(keywords, list):
             keywords = []
@@ -68,9 +68,9 @@ def _normalize_dimensions(value: Any) -> list[dict[str, Any]]:
                 "type": dim_type,
                 "weight": weight,
                 "keywords": [
-                    str(keyword).strip()[:50]
+                    text_value(keyword, limit=50)
                     for keyword in keywords[:10]
-                    if str(keyword).strip()
+                    if text_value(keyword)
                 ],
                 "probe": "STAR" if dim_type == "soft" else None,
             }

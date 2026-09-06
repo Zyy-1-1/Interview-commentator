@@ -26,7 +26,7 @@
       ▼           │  · 服务端兜底:action 校验 + 轮次上限
 动态追问 ◄────────┘
       │
-收尾 → 评估 Agent 一次调用 → 个人竞争力报告 JSON
+收尾 → 领取后台评估任务 → 个人竞争力报告 JSON（可查询状态和重试）
       ▼
 查看报告 /admin/reports/{id}(雷达图 + 原话证据 + 提升建议)
 
@@ -72,21 +72,27 @@
 **面试状态机(面试官 Agent)**:LLM 负责「聪明的判断」,状态机负责「流程的可靠性」。
 - 一次 `invoke` = 推进一个回合(开场白 / 判断并出下一问 / 收尾);
 - 中间状态以 JSON 快照存库(`Interview.state`),异步多轮 = 多次恢复 + invoke;
-- 服务端二次校验 action 枚举 + 轮次上限(每维度 ≤3 问,全场 ≤15 问),LLM 出错自动兜底降级,不中断面试;
-- **三种面试官风格(pro/friendly/pressure)只替换 system prompt 中的人格段**,action 枚举、状态迁移、评估标准完全不变——人格化是语言层,决策是内核。
+- 服务端二次校验 action 枚举、问题字段和轮次上限；默认每维度最多追问 3 次、全场最多提问 15 次。`MAX_Q_PER_DIM` / `MAX_TOTAL_Q` 必须为正整数，创建面试时保存到状态快照，后续配置变更只影响新会话。模型决策结构异常时使用安全问题兜底；简历字段类型错误返回可重试的 422。
+- **三种面试官风格（pro/friendly/pressure）共享服务端流程约束与报告评分规则**，人格段提供不同的措辞与追问偏好。协议相同不能证明实际追问或评分公平，相关结论需要真实对照实验。
 
-**可审计性**:逐轮消息(`interview_messages`)留痕,含该轮质量判断(assess),报告证据引用应聘者**原话**,可复核。
+**简历与追问关联**：创建会话时，从结构化简历对应的原文中定位项目、经历和技能片段，保存片段编号、字段路径和字符位置；出题背景最多 16 段、3500 字符，不主动纳入姓名、年龄和联系方式。找不到原文的模型概括不会作为出题事实，原文存在也不代表能力已核验。会话内固定这些材料；流程纠偏按维度关键词选择项目，真实模型可结合原话进一步追问。开场统一为不计维度的经历暖场，随后正式考察。
+
+**可审计性**：逐轮消息（`interview_messages`）保留编号与问题维度。新报告（`schema_version: 2`）的证据必须定位到同一维度、同一条候选人消息；报告页可展开原始问答。维度状态为 `scored`、`not_assessed` 或 `insufficient_evidence`，后两者的 `score` 为 `null`；低分需要实际回答证据。完整覆盖且输入未截断时才返回 `summary_score`，否则为 `null`，另给 `coverage` 与仅代表已覆盖部分的 `assessed_score`。原话校验只能证明出处，评分合理性与公平性仍需真实对照评估。历史缓存报告保留原样并在页面标注未按新规则核验。
 
 **一致性保护**:客户端每次答题携带 `request_id`,网络重试会回放同一结果;数据库使用乐观锁并把状态快照与双侧消息放在同一事务中,避免重复推进或部分写入。
 
 **匿名隐私凭证**:上传简历后服务端只返回一次随机访问令牌,数据库仅保存其 SHA-256;匹配、创建面试、答题、消息和报告接口均需 `X-Candidate-Token`。前端把令牌保存在当前浏览器会话中,无需注册账号。
+
+**失败恢复**：匹配分析失败可直接重试；创建面试失败会在开始按钮下显示原因，保留当前简历、匹配结果和风格选择，再次点击即可重试。报告在后台生成，可查询状态并在失败后重试。
+
+技术方案与实验设计见 [参赛技术说明](docs/参赛技术说明-2026-09-06.md)，实际修复和验证结果见 [分批清单](docs/修复清单-2026-09-05.md)。
 
 ## 四、仓库结构
 
 ```
 Interview-commentator/
 ├── .env.example               # 环境变量样例(复制为 backend/.env)
-├── docker-compose.yml        # 一键起后端(前端可追加服务)
+├── docker-compose.yml        # Nginx 前端 + FastAPI 后端
 ├── start_all.bat             # Windows 一键启动前后端
 ├── backend/
 │   ├── requirements.txt / requirements-dev.txt
@@ -164,23 +170,27 @@ python scripts/make_demo.py
 
 5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表,完成后会打印带 `#access_token=...` fragment 的本地演示链接;前端读取后立即从地址栏清除。
 
-### 5. Docker 部署（当前仅后端）
+### 5. Docker 整站部署（本地）
 
 ```bash
-copy .env.example backend\.env    # 填 DASHSCOPE_API_KEY 与 REVIEW_PASSPHRASE
+# 实时模型功能按前文配置 backend/.env；仅启动站点可不配置密钥
+docker compose config --quiet
 docker compose up -d --build
-docker compose ps                  # backend 应显示 healthy
+docker compose ps                  # backend 和 frontend 应为 healthy
+# 浏览器打开 http://localhost:8080
 ```
 
-容器内数据库固定写入 `/app/data/interview.db` 并挂载命名卷;`backend/.env`、数据库、上传临时文件均不会进入镜像构建上下文。
+Compose 需支持可选 env_file（2.24.0 或更新）。前端由 Nginx 提供静态文件，将 `/api/` 代理至 backend，业务页面刷新回退到 index.html。前后端端口默认仅绑定本机，可用 `FRONTEND_PORT` / `BACKEND_PORT` 调整；Vite 开发代理可通过 `API_PROXY_TARGET` 指定独立后端。数据库固定写入 `/app/data/interview.db` 并挂载命名卷，镜像不包含环境文件、数据库或上传文件。`docker compose down` 保留数据卷；不要对已有数据随意使用 `down -v`。未配置模型时启动成功不代表上传解析、匹配或生成报告可用。
 
-## 六、三组验收指标(答辩用)
+## 六、待验证的实验目标
 
 | 指标 | 目标 | 验证方式 |
 |---|---|---|
 | 追问触发率 | ≥60% | 固定答案回归测试,统计回答质量一般时是否触发追问 |
-| 评估一致率 | 3 次跑分极差 ≤1 分 | 同一场面试重复评估 3 次,比较维度分极差 |
-| 单场成本 | <¥1 | 一次完整面试的千问 token 消耗(TTS 与数字人均为端侧,零服务器成本) |
+| 评分稳定性 | 3 次独立评估的维度分极差 ≤1 分 | 固定输入、模型和提示词，独立运行评估并记录原始结果；重复请求已有报告只会读取缓存 |
+| 单场成本 | <¥1 | 分阶段记录 token 与失败重试，按实验当日价目计算；尚未实测 |
+
+这些数值是目标，不是已达到的结果。还需统计有效追问、证据相关性、人工评分误差和使用反馈，详见 [演示与实验口径](scripts/演示脚本.md)。
 
 ## 七、API 一览
 
@@ -199,7 +209,12 @@ docker compose ps                  # backend 应显示 healthy
 | POST | `/api/interviews/{id}/message` | 答题闭环;需令牌,支持幂等 `request_id` |
 | GET | `/api/interviews/{id}/messages` | 逐轮消息;需候选人令牌 |
 | GET | `/api/interviews/{id}/state` | 会话进度快照;需候选人令牌 |
-| GET | `/api/interviews/{id}/report` | 个人竞争力评估报告;需候选人令牌 |
+| GET | `/api/interviews/{id}/report` | 报告及生成状态；需候选人令牌，未生成时 report 为 null |
+| POST | `/api/interviews/{id}/evaluate` | 已结束面试补做或重试评估；新任务返回 202，已有报告返回 200 |
+
+报告状态为 `not_started / pending / running / ready / failed`，`can_retry` 表示当前是否可发起评估。收尾请求落库后即安排后台线程评估，页面每 2 秒查询状态。数据库领取与任务编号阻止同一报告并发重复调用及旧任务覆盖新结果。当前使用进程内后台任务：服务重启不会自动恢复未完成任务，超过 120 秒（或模型总预算加 30 秒，取较大值）后可在报告页手动重试；查询状态不会触发模型。多节点部署或大规模队列需要独立任务系统。
+
+模型默认单次网络超时 `LLM_TIMEOUT_SECONDS=25`，多次尝试共享 `LLM_TOTAL_TIMEOUT_SECONDS=75` 秒重试预算（最大 80）；每次请求使用剩余预算收紧超时，鉴权与参数错误不重复请求。网络库的超时不等同于严格的进程执行时限。浏览器请求超时为 90 秒，生成报告已从答题请求中分离。
 
 ## 八、测试
 

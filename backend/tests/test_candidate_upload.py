@@ -41,6 +41,37 @@ def test_rejects_oversized_upload_without_residue(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize("parsed, expected_status", [
+    ({"basic": None, "skills": None}, 200),
+    ({"basic": {"name": ["invalid"]}}, 422),
+])
+def test_upload_handles_invalid_model_sections(tmp_path, monkeypatch, parsed, expected_status):
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'model-output.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    TestSession = sessionmaker(bind=engine)
+    def override():
+        with TestSession() as session:
+            yield session
+
+    monkeypatch.setattr(candidates_api, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(candidates_api, "parse_resume_file", lambda path: parsed)
+    app.dependency_overrides[get_db] = override
+    try:
+        response = TestClient(app).post(
+            "/api/candidates", files={"file": ("resume.txt", b"resume", "text/plain")},
+        )
+        assert response.status_code == expected_status, response.text
+        with TestSession() as session:
+            assert session.query(Candidate).count() == (1 if expected_status == 200 else 0)
+        assert list((tmp_path / "uploads").iterdir()) == []
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+
+
 def test_upload_parses_in_threadpool_and_deletes_source(tmp_path, monkeypatch):
     engine = create_engine(
         f"sqlite:///{tmp_path / 'upload.db'}",

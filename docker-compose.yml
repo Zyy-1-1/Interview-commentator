@@ -1,17 +1,17 @@
-# 「面评家」docker compose 编排（当前仅后端）
+# 「面评家」本地整站编排：Nginx 前端 + FastAPI 后端
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: interview-backend
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       # 固定到持久卷，避免 .env 中的本地相对路径覆盖容器配置。
       DATABASE_URL: sqlite:////app/data/interview.db
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:
       - db-data:/app/data
     healthcheck:
@@ -24,6 +24,17 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -46,6 +46,7 @@ class InterviewState(TypedDict, total=False):
     style: NotRequired[str]                        # 面试官人格 pro|friendly|pressure
     phase: NotRequired[str]                        # PHASE_*
     dim_idx: NotRequired[int]                      # 当前考察维度下标
+    resume_facts: NotRequired[list[dict[str, Any]]]  # 简历原文片段与字符位置，仅作出题背景
     dimensions: NotRequired[list[dict[str, Any]]]  # JD 分析输出的维度清单(见 jd_analyzer)
     dim_question_count: NotRequired[dict[str, int]]  # {维度名: 已问次数}
     total_questions: NotRequired[int]              # 全场已问次数(开场白不计)
@@ -60,7 +61,7 @@ class InterviewState(TypedDict, total=False):
     # ---------- 输出(本轮结果,由状态机写出) ----------
     last_output: NotRequired[dict[str, Any]]       # LLM 完整协议 {thinking, assess, next_question, action}
     action: NotRequired[str]                       # 服务端校验后的 action
-    assess: NotRequired[dict[str, Any]]            # 本轮质量判断(归一化后),供消息留痕/评估
+    assess: NotRequired[dict[str, Any] | None]            # 本轮质量判断(归一化后),供消息留痕/评估
     finished: NotRequired[bool]                    # 本轮是否收尾
     closing_message: NotRequired[str]              # 收尾语
     last_request_id: NotRequired[str]              # 最近一次已提交客户端请求 ID
@@ -76,6 +77,7 @@ def initial_state(
     style: str = "pro",
     max_q_per_dim: int = 3,
     max_total_q: int = 15,
+    resume_facts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """创建一份全新的面试状态(默认值对齐 config.py 面试规则)。"""
     return {
@@ -85,6 +87,7 @@ def initial_state(
         "phase": PHASE_OPENING,
         "dim_idx": 0,
         "dimensions": dimensions,
+        "resume_facts": resume_facts or [],
         "dim_question_count": {},
         "total_questions": 0,
         "history": [],

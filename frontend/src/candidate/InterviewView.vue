@@ -88,10 +88,10 @@
           <div class="done-icon">✓</div>
           <div class="done-text">
             <b>面试已完成</b>
-            感谢你的参与!个人竞争力报告已生成。
+            感谢你的参与！接下来将评估本次回答，可在报告页查看生成进度。
           </div>
           <router-link class="done-btn" :to="`/admin/reports/${interviewId}`">
-            查看我的报告 →
+            查看报告进度与结果 →
           </router-link>
         </div>
       </template>

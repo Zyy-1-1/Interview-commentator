@@ -136,6 +136,8 @@ def test_total_questions_cap_force_closing():
     assert result["finished"] is True
     assert result["action"] == ACTION_CLOSING
     assert calls == []  # 上限兜底时 LLM 不再被调用
+    assert result["history"][-2] == {"role": "candidate", "text": "还有话说"}
+    assert result["assess"] is None  # 不复用上一轮的评分。
 
 
 def test_closing():

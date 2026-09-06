@@ -13,15 +13,18 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
-from ..agents.evaluator import evaluate
 from ..agents.interviewer.graph import build_llm_graph, compute_progress
 from ..agents.interviewer.state import PHASE_CANDIDATE_QA, PHASE_CLOSING, initial_state
+from ..agents.interviewer.resume_context import build_resume_facts
 from ..db import get_db
+from ..config import settings
 from ..models import Candidate, Interview, InterviewMessage, Job
+from ..report_jobs import queue_evaluation
 from ..schemas import (
     InterviewCreate,
     InterviewListItem,
@@ -61,7 +64,12 @@ def _load_state(interview: Interview) -> dict:
             dimensions=dims,
             job_title=interview.job.title or "本岗位",
             style=interview.style or "pro",
+            max_q_per_dim=settings.max_q_per_dim,
+            max_total_q=settings.max_total_q,
+            resume_facts=build_resume_facts(interview.candidate.parsed_resume, interview.candidate.resume_text),
         )
+    if "resume_facts" not in state:
+        state["resume_facts"] = build_resume_facts(interview.candidate.parsed_resume, interview.candidate.resume_text)
     return state
 
 
@@ -97,30 +105,6 @@ def _persist(
 def _current_dim_name(result: dict) -> str | None:
     progress = compute_progress(result)
     return progress.get("current_dimension") or None
-
-
-def _run_evaluation(interview: Interview, db: Session) -> None:
-    """调用评估 Agent,报告写入 Interview.report。失败不抛(留空可手动重试)。"""
-    try:
-        job = interview.job
-        cand = interview.candidate
-        dims = json.loads(job.dimensions or "[]")
-        parsed = json.loads(cand.parsed_resume) if cand.parsed_resume else None
-        messages = [
-            {"role": m.role, "text": m.text} for m in interview.messages
-        ]
-        report = evaluate(
-            job_title=job.title,
-            dimensions=dims,
-            parsed_resume=json.dumps(parsed, ensure_ascii=False) if parsed else None,
-            messages=messages,
-        )
-        interview.report = json.dumps(report, ensure_ascii=False)
-        db.commit()
-        logger.info("面试 %s 评估完成:总分 %s", interview.id, report.get("summary_score"))
-    except Exception as e:  # noqa: BLE001  评估失败不中断面试流程,报告留空可重试
-        db.rollback()
-        logger.exception("面试 %s 评估失败: %s", interview.id, e)
 
 
 def _to_turn(result: dict) -> InterviewTurn:
@@ -175,8 +159,15 @@ def create_interview(
     verify_candidate_access(cand.access_token_hash, candidate_token, admin_passphrase)
     if job.status != "approved":
         raise HTTPException(422, "该岗位尚未审核上架")
-    if not job.dimensions:
-        raise HTTPException(422, "该岗位尚未完成 JD 分析(维度缺失),请先重试 JD 分析")
+    try:
+        outline = json.loads(job.dimensions or "[]")
+    except (TypeError, ValueError):
+        outline = None
+    if not isinstance(outline, list) or not outline or not all(
+        isinstance(dimension, dict) and isinstance(dimension.get("name"), str)
+        and dimension["name"].strip() for dimension in outline
+    ):
+        raise HTTPException(422, "该岗位尚未完成有效的 JD 分析，请先重试 JD 分析")
     if body.style not in VALID_STYLES:
         raise HTTPException(422, f"未知面试官风格 {body.style!r},可选 {sorted(VALID_STYLES)}")
 
@@ -184,6 +175,8 @@ def create_interview(
         job_id=job.id, candidate_id=cand.id, status="created", style=body.style
     )
     db.add(interview)
+    db.flush()
+    interview.state = json.dumps(_load_state(interview), ensure_ascii=False)
     db.commit()
     db.refresh(interview)
     return interview
@@ -276,6 +269,7 @@ def get_interview(
 def send_message(
     interview_id: int,
     body: InterviewMessageIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate_token: Annotated[str | None, Header(alias=CANDIDATE_HEADER)] = None,
     admin_passphrase: Annotated[str | None, Header(alias=REVIEW_HEADER)] = None,
@@ -321,11 +315,11 @@ def send_message(
     if not reply:
         raise HTTPException(422, "请先回答问题再提交")
     # 回答对应的是调用状态机前屏幕上已经展示的问题维度。
-    answered_dimension = (
-        None
-        if state.get("phase") in {PHASE_CANDIDATE_QA, PHASE_CLOSING}
-        else _current_dim_name(state)
+    previous_question = next(
+        (message for message in reversed(interview.messages) if message.role == "agent"),
+        None,
     )
+    answered_dimension = previous_question.dimension if previous_question else None
     state["candidate_reply"] = reply
     result = _get_graph().invoke(state)
     turn = _to_turn(result)
@@ -360,9 +354,9 @@ def send_message(
         request_reply=reply,
     )
     committed_turn = _commit_turn(db, interview, turn, request_id, reply)
-    # 收尾后自动生成评估报告
+    # 收尾已落库，响应发送后在后台线程生成报告。
     if result.get("finished"):
-        _run_evaluation(interview, db)
+        queue_evaluation(interview, db, background_tasks)
     return committed_turn
 
 
@@ -435,6 +429,7 @@ def get_state(
 @router.post("/{interview_id}/evaluate")
 def trigger_evaluate(
     interview_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate_token: Annotated[str | None, Header(alias=CANDIDATE_HEADER)] = None,
     admin_passphrase: Annotated[str | None, Header(alias=REVIEW_HEADER)] = None,
@@ -446,9 +441,5 @@ def trigger_evaluate(
     _authorize_interview(interview, candidate_token, admin_passphrase)
     if interview.status != "finished":
         raise HTTPException(409, "面试尚未结束,不能生成最终报告")
-    if interview.report:
-        return {"interview_id": interview_id, "report": json.loads(interview.report)}
-    _run_evaluation(interview, db)
-    if not interview.report:
-        raise HTTPException(500, "评估失败,请稍后重试")
-    return {"interview_id": interview_id, "report": json.loads(interview.report)}
+    payload = queue_evaluation(interview, db, background_tasks)
+    return JSONResponse(payload, status_code=200 if payload["status"] == "ready" else 202)
