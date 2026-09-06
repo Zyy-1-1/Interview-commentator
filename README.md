@@ -83,12 +83,14 @@
 
 **匿名隐私凭证**:上传简历后服务端只返回一次随机访问令牌,数据库仅保存其 SHA-256;匹配、创建面试、答题、消息和报告接口均需 `X-Candidate-Token`。前端把令牌保存在当前浏览器会话中,无需注册账号。
 
+技术方案与实验设计见 [参赛技术说明](docs/参赛技术说明-2026-09-06.md)，实际修复和验证结果见 [分批清单](docs/修复清单-2026-09-05.md)。
+
 ## 四、仓库结构
 
 ```
 Interview-commentator/
 ├── .env.example               # 环境变量样例(复制为 backend/.env)
-├── docker-compose.yml        # 一键起后端(前端可追加服务)
+├── docker-compose.yml        # Nginx 前端 + FastAPI 后端
 ├── start_all.bat             # Windows 一键启动前后端
 ├── backend/
 │   ├── requirements.txt / requirements-dev.txt
@@ -166,23 +168,27 @@ python scripts/make_demo.py
 
 5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表,完成后会打印带 `#access_token=...` fragment 的本地演示链接;前端读取后立即从地址栏清除。
 
-### 5. Docker 部署（当前仅后端）
+### 5. Docker 整站部署（本地）
 
 ```bash
-copy .env.example backend\.env    # 填 DASHSCOPE_API_KEY 与 REVIEW_PASSPHRASE
+# 实时模型功能按前文配置 backend/.env；仅启动站点可不配置密钥
+docker compose config --quiet
 docker compose up -d --build
-docker compose ps                  # backend 应显示 healthy
+docker compose ps                  # backend 和 frontend 应为 healthy
+# 浏览器打开 http://localhost:8080
 ```
 
-容器内数据库固定写入 `/app/data/interview.db` 并挂载命名卷;`backend/.env`、数据库、上传临时文件均不会进入镜像构建上下文。
+Compose 需支持可选 env_file（2.24.0 或更新）。前端由 Nginx 提供静态文件，将 `/api/` 代理至 backend，业务页面刷新回退到 index.html。前后端端口默认仅绑定本机，可用 `FRONTEND_PORT` / `BACKEND_PORT` 调整；Vite 开发代理可通过 `API_PROXY_TARGET` 指定独立后端。数据库固定写入 `/app/data/interview.db` 并挂载命名卷，镜像不包含环境文件、数据库或上传文件。`docker compose down` 保留数据卷；不要对已有数据随意使用 `down -v`。未配置模型时启动成功不代表上传解析、匹配或生成报告可用。
 
-## 六、三组验收指标(答辩用)
+## 六、待验证的实验目标
 
 | 指标 | 目标 | 验证方式 |
 |---|---|---|
 | 追问触发率 | ≥60% | 固定答案回归测试,统计回答质量一般时是否触发追问 |
-| 评估一致率 | 3 次跑分极差 ≤1 分 | 同一场面试重复评估 3 次,比较维度分极差 |
-| 单场成本 | <¥1 | 一次完整面试的千问 token 消耗(TTS 与数字人均为端侧,零服务器成本) |
+| 评分稳定性 | 3 次独立评估的维度分极差 ≤1 分 | 固定输入、模型和提示词，独立运行评估并记录原始结果；重复请求已有报告只会读取缓存 |
+| 单场成本 | <¥1 | 分阶段记录 token 与失败重试，按实验当日价目计算；尚未实测 |
+
+这些数值是目标，不是已达到的结果。还需统计有效追问、证据相关性、人工评分误差和使用反馈，详见 [演示与实验口径](scripts/演示脚本.md)。
 
 ## 七、API 一览
 
