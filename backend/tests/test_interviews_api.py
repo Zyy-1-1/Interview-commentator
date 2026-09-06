@@ -161,6 +161,11 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert r.status_code == 200, r.text
     iv_id = r.json()["id"]
     assert r.json()["status"] == "created"
+    # 创建后重新分析岗位不能改变本场的考察与评估大纲。
+    with test_db() as db:
+        job = db.get(Job, ids["job_id"])
+        job.dimensions = json.dumps([{"name": "新岗位维度", "weight": 1}])
+        db.commit()
 
     # 1) 开场白(空 reply)
     r = client.post(
@@ -256,6 +261,7 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert msgs[-2]["assess"]["evidence"] == "e"
     assert msgs[-1]["assess"] is None
     # 回答归属调用前的问题维度；反向提问和收尾不归属能力维度。
+    assert msgs[1]["dimension"] is None  # 自我介绍不算第一项技能已考察。
     assert msgs[3]["dimension"] == "Python 编程"
     assert msgs[4]["dimension"] == "沟通表达"
     assert msgs[5]["dimension"] == "沟通表达"
@@ -277,6 +283,8 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert r.status_code == 200, r.text
     report = r.json()["report"]
     assert report["summary_score"] == 76
+    assert report["coverage"]["percent"] == 100
+    assert report["dimensions"][0]["evidence_refs"][0]["message_id"] == msgs[3]["id"]
     assert report["suggestion"] == "建议进入二面"
 
 

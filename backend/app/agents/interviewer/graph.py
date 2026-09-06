@@ -182,7 +182,14 @@ def _make_interviewer(judge: Judge) -> Callable[[InterviewState], dict[str, Any]
         # 0) 服务端兜底(最高优先级):全场轮次上限 → 无论 LLM 说什么都强制收尾
         if state.get("total_questions", 0) >= state.get("max_total_q", 15):
             logger.info("全场已达 %s 问上限,强制收尾", state["total_questions"])
-            return {"phase": PHASE_CLOSING, "finished": True, "action": ACTION_CLOSING}
+            history = list(state.get("history") or [])
+            if state.get("candidate_reply"):
+                history.append({"role": "candidate", "text": state["candidate_reply"]})
+            history.append({"role": "agent", "text": DEFAULT_CLOSING})
+            return {
+                "phase": PHASE_CLOSING, "finished": True, "action": ACTION_CLOSING,
+                "history": history, "assess": None, "last_output": {},
+            }
 
         # 1) LLM 决策(开场白 / 判断),人格由 state.style 驱动
         system = build_system_prompt(

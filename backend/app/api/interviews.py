@@ -107,13 +107,15 @@ def _run_evaluation(interview: Interview, db: Session) -> None:
     try:
         job = interview.job
         cand = interview.candidate
-        dims = json.loads(job.dimensions or "[]")
+        session_state = _load_state(interview)
+        dims = session_state["dimensions"]
         parsed = json.loads(cand.parsed_resume) if cand.parsed_resume else None
         messages = [
-            {"role": m.role, "text": m.text} for m in interview.messages
+            {"id": m.id, "role": m.role, "text": m.text, "dimension": m.dimension}
+            for m in interview.messages
         ]
         report = evaluate(
-            job_title=job.title,
+            job_title=session_state.get("job_title") or job.title,
             dimensions=dims,
             parsed_resume=json.dumps(parsed, ensure_ascii=False) if parsed else None,
             messages=messages,
@@ -123,7 +125,7 @@ def _run_evaluation(interview: Interview, db: Session) -> None:
         logger.info("面试 %s 评估完成:总分 %s", interview.id, report.get("summary_score"))
     except Exception as e:  # noqa: BLE001  评估失败不中断面试流程,报告留空可重试
         db.rollback()
-        logger.exception("面试 %s 评估失败: %s", interview.id, e)
+        logger.warning("面试 %s 评估失败: %s", interview.id, type(e).__name__)
 
 
 def _to_turn(result: dict) -> InterviewTurn:
@@ -326,11 +328,11 @@ def send_message(
     if not reply:
         raise HTTPException(422, "请先回答问题再提交")
     # 回答对应的是调用状态机前屏幕上已经展示的问题维度。
-    answered_dimension = (
-        None
-        if state.get("phase") in {PHASE_CANDIDATE_QA, PHASE_CLOSING}
-        else _current_dim_name(state)
+    previous_question = next(
+        (message for message in reversed(interview.messages) if message.role == "agent"),
+        None,
     )
+    answered_dimension = previous_question.dimension if previous_question else None
     state["candidate_reply"] = reply
     result = _get_graph().invoke(state)
     turn = _to_turn(result)

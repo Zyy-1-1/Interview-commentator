@@ -16,17 +16,28 @@
       <!-- 总分 + 建议 -->
       <section class="panel score-panel">
         <div class="score">
-          <span class="num">{{ state.report.summary_score }}</span>
-          <span class="unit">/ 100</span>
+          <span class="num">{{ state.report.summary_score ?? '—' }}</span>
+          <span class="unit">{{ state.report.summary_score == null ? '暂不计算完整总分' : '/ 100' }}</span>
         </div>
-        <div class="suggestion">{{ state.report.suggestion }}</div>
+        <div class="suggestion">
+          <p>{{ state.report.suggestion }}</p>
+          <p v-if="state.report.coverage" class="muted">
+            有效评分覆盖 {{ state.report.coverage.assessed }} / {{ state.report.coverage.total }} 项
+            （{{ state.report.coverage.percent }}%）。
+            <span v-if="state.report.summary_score == null && state.report.assessed_score != null">
+              已评估部分得分 {{ state.report.assessed_score }} / 100，仅代表已覆盖部分。
+            </span>
+          </p>
+          <p v-else class="muted">历史报告：尚未按消息编号逐条核验证据。</p>
+        </div>
       </section>
 
       <div class="grid">
         <!-- 雷达图 -->
         <section class="panel">
           <h2>维度得分</h2>
-          <div ref="chartEl" class="chart"></div>
+          <div v-if="hasCompleteScores" ref="chartEl" class="chart"></div>
+          <p v-else class="muted">部分维度尚未取得有效评分，暂不绘制完整雷达图。请查看右侧的考察状态。</p>
         </section>
 
         <!-- 维度明细 + 证据 -->
@@ -35,15 +46,31 @@
           <div v-for="d in state.report.dimensions" :key="d.name" class="dim">
             <div class="dim-head">
               <span class="dim-name">{{ d.name }}</span>
-              <span class="dim-score">{{ d.score }} / 10</span>
+              <span class="dim-score">{{ dimensionLabel(d) }}</span>
             </div>
             <ul>
-              <li v-for="(ev, i) in d.evidence" :key="i">「{{ ev }}」</li>
+              <li v-for="(ev, i) in d.evidence" :key="i">
+                「{{ ev }}」
+                <button v-if="d.evidence_refs?.[i]" class="source-link"
+                  :disabled="state.evidenceLoading" @click="showEvidence(d.evidence_refs[i])">
+                  查看回答 #{{ d.evidence_refs[i].message_id }}
+                </button>
+              </li>
               <li v-if="!d.evidence || !d.evidence.length" class="muted">该维度无有效回答证据</li>
             </ul>
           </div>
         </section>
       </div>
+
+      <section v-if="state.evidence || state.evidenceError" class="panel evidence-panel">
+        <h2>原始问答</h2>
+        <p v-if="state.evidenceError">{{ state.evidenceError }}</p>
+        <template v-else>
+          <p>消息 #{{ state.evidence.message_id }} · {{ state.evidence.dimension || '未标注维度' }}</p>
+          <p><strong>面试官：</strong>{{ state.evidence.question }}</p>
+          <pre>{{ state.evidence.text }}</pre>
+        </template>
+      </section>
 
       <div class="grid">
         <!-- 亮点 -->
@@ -75,7 +102,7 @@
 </template>
 
 <script>
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { interviews } from '../api'
 import { getInterviewToken } from '../access'
@@ -93,13 +120,48 @@ export default {
       report: null,
       error: '',
       evaluating: false,
+      evidence: null,
+      evidenceError: '',
+      evidenceLoading: false,
     })
+    const hasCompleteScores = computed(() => {
+      const dims = state.report?.dimensions || []
+      return dims.length > 0 && dims.every((d) => Number.isFinite(d.score))
+    })
+
+    function dimensionLabel(dimension) {
+      if (dimension.status === 'not_assessed') return '未考察'
+      if (dimension.score == null) return '证据不足，暂不评分'
+      return `${dimension.score} / 10`
+    }
+
+    async function showEvidence(ref) {
+      if (state.evidenceLoading) return
+      state.evidenceLoading = true
+      state.evidenceError = ''
+      try {
+        const messages = await interviews.messages(id, accessToken)
+        const index = messages.findIndex((m) => m.id === ref.message_id && m.role === 'candidate')
+        if (index < 0) throw new Error('未找到对应的候选人回答')
+        state.evidence = {
+          message_id: ref.message_id, text: messages[index].text,
+          dimension: messages[index].dimension,
+          question: messages.slice(0, index).reverse().find((m) => m.role === 'agent')?.text || '无提问记录',
+        }
+      } catch (e) {
+        state.evidenceError = `无法读取原话：${e.message}`
+      } finally {
+        state.evidenceLoading = false
+      }
+    }
 
     function renderChart() {
       const dims = state.report?.dimensions || []
       const el = chartEl.value
-      if (!el || !dims.length) return
-      if (!chart) chart = initChart(el)
+      chart?.dispose()
+      chart = null
+      if (!el || !hasCompleteScores.value) return
+      chart = initChart(el)
       chart.setOption({
         radar: {
           indicator: dims.map((d) => ({ name: d.name, max: 10 })),
@@ -168,7 +230,7 @@ export default {
       chart = null
     })
 
-    return { id, chartEl, state, runEvaluate }
+    return { id, chartEl, state, runEvaluate, hasCompleteScores, dimensionLabel, showEvidence }
   },
 }
 </script>
@@ -280,8 +342,19 @@ li {
 }
 
 .muted {
-  color: #9aa5b1;
+  color: #69798a;
 }
+
+.source-link {
+  border: 0;
+  background: transparent;
+  color: #1a73e8;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.evidence-panel { margin-bottom: 16px; }
+.evidence-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 
 .empty {
   text-align: center;

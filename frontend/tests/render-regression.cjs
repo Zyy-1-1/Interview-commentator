@@ -153,6 +153,44 @@ test('报告重试成功后清除错误并显示报告与图表', async (t) => {
   assert.equal(page.charts[0].el, chartNodes(page.root)[0])
 })
 
+function visibleText(node) {
+  return node.text + node.children.map(visibleText).join(' ')
+}
+
+test('覆盖不完整时显示未考察状态，不用零分绘制雷达图', async (t) => {
+  const partial = {
+    ...report, schema_version: 2, summary_score: null, assessed_score: 80,
+    coverage: { assessed: 1, total: 2, percent: 50 },
+    dimensions: [
+      { name: 'Python', status: 'scored', score: 8, evidence: [] },
+      { name: 'Communication', status: 'not_assessed', score: null, evidence: [] },
+    ],
+  }
+  const page = mount('admin/ReportView.vue', { interviews: { report: async () => ({ report: partial }) } })
+  t.after(page.unmount)
+  await settle()
+  assert.equal(page.charts.length, 0)
+  assert.match(visibleText(page.root), /未考察/)
+  assert.match(visibleText(page.root), /暂不计算完整总分/)
+  assert.equal(page.vm.dimensionLabel(partial.dimensions[1]), '未考察')
+})
+
+test('报告证据可以按编号展开对应的原始问答', async (t) => {
+  const page = mount('admin/ReportView.vue', { interviews: {
+    report: async () => ({ report }),
+    messages: async () => [
+      { id: 1, role: 'agent', text: 'Explain the decision' },
+      { id: 2, role: 'candidate', dimension: 'Python', text: 'Full original answer and details' },
+    ],
+  } })
+  t.after(page.unmount)
+  await settle()
+  await page.vm.showEvidence({ message_id: 2 })
+  await settle()
+  assert.match(visibleText(page.root), /Full original answer and details/)
+  assert.equal(page.vm.state.evidence.question, 'Explain the decision')
+})
+
 test('刷新报告页可以直接加载已有结果', async (t) => {
   const page = mount('admin/ReportView.vue', { interviews: { report: async () => ({ report }) } })
   t.after(page.unmount)

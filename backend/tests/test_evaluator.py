@@ -45,7 +45,8 @@ def test_evaluate_returns_report(monkeypatch):
         parsed_resume='{"基础": "3 年"}',
         messages=[
             {"role": "agent", "text": "自我介绍?"},
-            {"role": "candidate", "text": "我用 asyncio 优化了接口；我推动了跨部门协作"},
+            {"role": "candidate", "id": 2, "dimension": "Python 编程", "text": "我用 asyncio 优化了接口"},
+            {"role": "candidate", "id": 4, "dimension": "沟通表达", "text": "我推动了跨部门协作"},
         ],
     )
     assert report["summary_score"] == 76
@@ -92,9 +93,12 @@ def test_evaluate_recomputes_score_and_removes_hallucinated_evidence(monkeypatch
         job_title="x",
         dimensions=DIMS,
         parsed_resume=None,
-        messages=[{"role": "candidate", "text": "我只说过这一句"}],
+        messages=[{"id": 2, "role": "candidate", "dimension": "Python 编程", "text": "我只说过这一句"}],
     )
-    assert report["dimensions"][0]["score"] == 10
+    assert report["dimensions"][0]["score"] is None
+    assert report["dimensions"][0]["status"] == "insufficient_evidence"
     assert report["dimensions"][0]["evidence"] == []
-    assert report["dimensions"][1]["score"] == 0
-    assert report["summary_score"] == 60
+    assert report["dimensions"][1]["score"] is None
+    assert report["dimensions"][1]["status"] == "not_assessed"
+    assert report["summary_score"] is None
+    assert report["coverage"]["assessed"] == 0
