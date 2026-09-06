@@ -20,6 +20,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from ..agents.interviewer.graph import build_llm_graph, compute_progress
 from ..agents.interviewer.state import PHASE_CANDIDATE_QA, PHASE_CLOSING, initial_state
+from ..agents.interviewer.resume_context import build_resume_facts
 from ..db import get_db
 from ..config import settings
 from ..models import Candidate, Interview, InterviewMessage, Job
@@ -65,7 +66,10 @@ def _load_state(interview: Interview) -> dict:
             style=interview.style or "pro",
             max_q_per_dim=settings.max_q_per_dim,
             max_total_q=settings.max_total_q,
+            resume_facts=build_resume_facts(interview.candidate.parsed_resume, interview.candidate.resume_text),
         )
+    if "resume_facts" not in state:
+        state["resume_facts"] = build_resume_facts(interview.candidate.parsed_resume, interview.candidate.resume_text)
     return state
 
 
@@ -155,8 +159,15 @@ def create_interview(
     verify_candidate_access(cand.access_token_hash, candidate_token, admin_passphrase)
     if job.status != "approved":
         raise HTTPException(422, "该岗位尚未审核上架")
-    if not job.dimensions:
-        raise HTTPException(422, "该岗位尚未完成 JD 分析(维度缺失),请先重试 JD 分析")
+    try:
+        outline = json.loads(job.dimensions or "[]")
+    except (TypeError, ValueError):
+        outline = None
+    if not isinstance(outline, list) or not outline or not all(
+        isinstance(dimension, dict) and isinstance(dimension.get("name"), str)
+        and dimension["name"].strip() for dimension in outline
+    ):
+        raise HTTPException(422, "该岗位尚未完成有效的 JD 分析，请先重试 JD 分析")
     if body.style not in VALID_STYLES:
         raise HTTPException(422, f"未知面试官风格 {body.style!r},可选 {sorted(VALID_STYLES)}")
 

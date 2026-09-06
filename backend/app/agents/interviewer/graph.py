@@ -19,6 +19,7 @@ from ...llm import chat_json
 from ..output_validation import finite_number, normalize_decision, text_value
 
 from .prompts import build_system_prompt, build_user_prompt
+from .resume_context import project_anchor
 from .state import (
     ACTION_CLOSING,
     ACTION_CONTINUE_DIMENSION,
@@ -131,9 +132,11 @@ def _transition_question(state: InterviewState, action: str) -> str:
         return DEFAULT_QUESTION
     target = dims[target_idx]
     name = target.get("name") or "下一项能力"
+    project = project_anchor(state, target)
+    context = f"简历中你提到「{project}」，" if project else ""
     if target.get("type") == "soft":
-        return f"接下来聊聊「{name}」。请用一个具体案例说明当时的情境、你的行动和结果。"
-    return f"接下来考察「{name}」。请结合一个具体经历说明你的做法和结果。"
+        return f"接下来聊聊「{name}」。{context}请用一个具体案例说明当时的情境、你的行动和结果。"
+    return f"接下来考察「{name}」。{context}请结合一个具体经历说明你的做法和结果。"
 
 
 def _fallback_output(state: InterviewState) -> dict[str, Any]:

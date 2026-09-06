@@ -27,7 +27,7 @@
 | `backend/app/llm.py` | DashScope 千问调用、JSON 解析、共享重试预算和用量日志 |
 | `backend/app/report_jobs.py` | 报告任务领取、生成状态、超时重试与迟到结果隔离 |
 | `backend/app/agents/` | JD 分析、简历解析、人岗匹配、报告评估 |
-| `backend/app/agents/interviewer/` | LangGraph 回合推进、状态定义、追问与风格提示词 |
+| `backend/app/agents/interviewer/` | LangGraph 回合推进、状态定义、带原文位置的简历背景、追问与风格提示词 |
 | `backend/tests/`、`pytest.ini` | 离线测试、隔离数据和显式启用的 `llm_live` 用例 |
 | `frontend/src/views/` | 岗位大厅、简历分析、发布与审核页面 |
 | `frontend/src/candidate/InterviewView.vue` | 多轮答题、重试、进度与语音播报 |

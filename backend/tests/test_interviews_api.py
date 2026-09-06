@@ -289,6 +289,31 @@ def test_full_interview_loop(test_db, monkeypatch):
     assert report["suggestion"] == "建议进入二面"
 
 
+def test_resume_context_is_frozen_and_available_in_real_api_prompts(test_db, monkeypatch):
+    ids = _seed(test_db)
+    with test_db() as db:
+        candidate = db.get(Candidate, ids["candidate_id"])
+        candidate.resume_text = "校园通知平台 asyncio"
+        candidate.parsed_resume = json.dumps({"projects": [{"name": "校园通知平台", "tech_stack": ["asyncio"]}]})
+        db.commit()
+    judge, calls = make_sequence([ACTION_CONTINUE_DIMENSION], ["请介绍项目经历"])
+    monkeypatch.setattr(interviews_api, "_get_graph", lambda: build_graph(judge))
+    client = TestClient(app, headers=CANDIDATE_HEADERS)
+    first_id = client.post("/api/interviews", json=ids).json()["id"]
+    with test_db() as db:
+        candidate = db.get(Candidate, ids["candidate_id"])
+        candidate.resume_text = "课程预约系统 MySQL"
+        candidate.parsed_resume = json.dumps({"projects": [{"name": "课程预约系统", "tech_stack": ["MySQL"]}]})
+        db.commit()
+    assert client.post(f"/api/interviews/{first_id}/message", json={}).status_code == 200
+    assert "校园通知平台" in calls[0]["user"]
+    assert "课程预约系统" not in calls[0]["user"]
+    second_id = client.post("/api/interviews", json=ids).json()["id"]
+    assert client.post(f"/api/interviews/{second_id}/message", json={}).status_code == 200
+    assert "课程预约系统" in calls[1]["user"]
+    assert "校园通知平台" not in calls[1]["user"]
+
+
 def test_style_flows_into_prompts(test_db, monkeypatch):
     """创建时指定风格 → 持久化 → 注入首轮 system prompt(人格在语言层)。"""
     ids = _seed(test_db)
@@ -309,6 +334,16 @@ def test_style_flows_into_prompts(test_db, monkeypatch):
     assert r.status_code == 200
     assert "高老师" in calls[0]["system"]
     assert "压力面试官" in calls[0]["system"]
+
+
+@pytest.mark.parametrize("dimensions", ["[]", "{}", "broken JSON"])
+def test_cannot_start_without_a_valid_job_outline(test_db, dimensions):
+    ids = _seed(test_db)
+    with test_db() as db:
+        db.get(Job, ids["job_id"]).dimensions = dimensions
+        db.commit()
+    response = TestClient(app, headers=CANDIDATE_HEADERS).post("/api/interviews", json=ids)
+    assert response.status_code == 422
 
 
 def test_invalid_style_rejected(test_db):
