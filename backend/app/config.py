@@ -1,5 +1,6 @@
-"""应用配置:显式环境变量优先，其次读取当前目录的 .env。"""
+"""应用配置:项目 .env 优先,其次进程环境变量(便于 CI/Docker 无 .env 时兜底)。"""
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import (
     BaseSettings,
@@ -7,10 +8,14 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+# 锚定 backend/.env 绝对路径:无论 uvicorn 从 backend/ 还是仓库根目录启动都能读到,
+# 避免 env_file=".env" 随当前工作目录漂移。
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -24,8 +29,10 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ):
-        # 遵循 12-factor 惯例：CI / Docker / 临时命令行变量应能覆盖 .env。
-        return init_settings, env_settings, dotenv_settings, file_secret_settings
+        # 项目 .env 优先于进程环境变量:本项目随仓库自带一份权威 .env,
+        # 机器级环境变量可能是过期/无关的残留值,不应盖过项目配置。
+        # 若 .env 未提供某项,进程环境变量仍可兜底(CI/Docker 无 .env 的场景)。
+        return init_settings, dotenv_settings, env_settings, file_secret_settings
 
     # LLM(千问 DashScope,OpenAI 兼容协议)
     dashscope_api_key: str = ""
