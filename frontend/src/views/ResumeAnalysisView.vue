@@ -103,6 +103,7 @@
         <button class="primary big" :disabled="state.starting" @click="start">
           {{ state.starting ? '创建面试中…' : `以「${styleName}」开始模拟面试 →` }}
         </button>
+        <p v-if="state.error" class="err" role="alert">{{ state.error }}</p>
       </section>
     </template>
   </div>

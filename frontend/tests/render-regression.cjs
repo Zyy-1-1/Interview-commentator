@@ -144,6 +144,45 @@ test('换简历后忽略旧请求迟到的结果', async (t) => {
   assert.equal(page.charts.length, 0)
 })
 
+test('创建面试失败可见，保留匹配结果并在重试成功后跳转', async (t) => {
+  let attempts = 0
+  let complete
+  const destinations = []
+  const tokens = []
+  const page = mount('views/ResumeAnalysisView.vue', {
+    jobs,
+    candidates: { match: async () => result },
+    interviews: { create: async (...args) => {
+      assert.deepEqual(args, [1, 1, 'pressure', 'synthetic-create-token'])
+      if (++attempts === 1) throw new Error('Synthetic creation failure')
+      return new Promise((resolve) => { complete = resolve })
+    } },
+    useRouter: () => ({ push: (path) => destinations.push(path) }),
+    storeInterviewToken: (id, token) => tokens.push({ id, token }),
+  })
+  t.after(page.unmount)
+  await settle()
+  page.vm.state.cand = { id: 1, access_token: 'synthetic-create-token' }
+  page.vm.style = 'pressure'
+  await page.vm.loadMatch()
+  await page.vm.start()
+  await settle()
+  assert.match(visibleText(page.root), /Synthetic creation failure/)
+  assert.equal(page.vm.state.starting, false)
+  assert.equal(page.vm.match.overall, 70)
+  assert.equal(page.charts.length, 1)
+  assert.deepEqual(destinations, [])
+
+  const pending = page.vm.start()
+  await settle()
+  assert.equal(page.vm.state.starting, true)
+  assert.doesNotMatch(visibleText(page.root), /Synthetic creation failure/)
+  complete({ id: 9 })
+  await pending
+  assert.deepEqual(destinations, ['/interview/9'])
+  assert.deepEqual(tokens, [{ id: 9, token: 'synthetic-create-token' }])
+})
+
 test('报告重试成功后清除错误并显示报告与图表', async (t) => {
   const page = mount('admin/ReportView.vue', { interviews: {
     report: async () => ({ status: 'failed', report: null, error: 'Temporary failure', can_retry: true }),
