@@ -5,9 +5,9 @@
       <div class="steps">
         <span class="step done">① 选择岗位</span>
         <span class="sep">—</span>
-        <span class="step" :class="{ done: !!state.cand, on: !state.cand }">② 上传简历并分析</span>
+        <span class="step" :class="{ done: !!state.cand, on: !state.cand }">② 上传简历</span>
         <span class="sep">—</span>
-        <span class="step" :class="{ on: !!match }">③ 开始模拟面试</span>
+        <span class="step" :class="{ on: !!state.cand }">③ 开始模拟面试</span>
       </div>
     </header>
 
@@ -29,68 +29,37 @@
       <div class="up-icon">📄</div>
       <h2>上传你的简历</h2>
       <p class="sub">支持 PDF / DOCX / Markdown / TXT（最大 10 MB）,拖拽或点击选择文件</p>
-      <p class="sub">AI 将解析简历并生成「人岗匹配分析」,看完分析再决定是否开始模拟面试</p>
+      <p class="sub">AI 解析简历后,即可选择面试官风格直接开始模拟面试</p>
       <button class="primary" :disabled="state.uploading" @click="$refs.file.click()">
         {{ state.uploading ? '解析中,请稍候…' : '选择简历文件' }}
       </button>
       <input ref="file" type="file" accept=".pdf,.docx,.txt,.md" hidden @change="onFile" />
       <p v-if="state.uploading" class="dots-line">
-        正在解析简历 + 匹配分析 <span class="dots"><i></i><i></i><i></i></span>
+        正在解析简历 <span class="dots"><i></i><i></i><i></i></span>
       </p>
       <p v-if="state.error" class="err">{{ state.error }}</p>
     </section>
 
-    <!-- 第二步:分析结果 -->
+    <!-- 第二步:简历档案 + 选择面试官风格并开始 -->
     <template v-else>
-      <div class="two-col">
-        <section class="panel">
+      <section class="panel">
+        <div class="profile-head">
           <h2>简历档案</h2>
-          <p class="cand-name">{{ state.cand.name || '(未识别姓名)' }}</p>
-          <div v-if="brief" class="brief">
-            <div v-if="brief.school" class="row"><span>学校</span><b>{{ brief.school }}</b></div>
-            <div v-if="brief.major" class="row"><span>专业</span><b>{{ brief.major }}</b></div>
-            <div v-if="brief.experience" class="row"><span>经历</span><b>{{ brief.experience }}</b></div>
-            <div v-if="brief.skills" class="row"><span>技能</span><b>{{ brief.skills }}</b></div>
-          </div>
           <button class="ghost" @click="reupload">换一份简历</button>
-        </section>
+        </div>
+        <p class="cand-name">{{ state.cand.name || '(未识别姓名)' }}</p>
+        <div v-if="brief" class="brief">
+          <div v-if="brief.school" class="row"><span>学校</span><b>{{ brief.school }}</b></div>
+          <div v-if="brief.major" class="row"><span>专业</span><b>{{ brief.major }}</b></div>
+          <div v-if="brief.experience" class="row"><span>经历</span><b>{{ brief.experience }}</b></div>
+          <div v-if="brief.skills" class="row"><span>技能</span><b>{{ brief.skills }}</b></div>
+        </div>
+        <router-link class="match-link" :to="{ path: '/match', query: { job: jobId } }">
+          想看这份简历与岗位的匹配评审单?前往「简历评审」→
+        </router-link>
+      </section>
 
-        <section class="panel">
-          <h2>人岗匹配分析</h2>
-          <template v-if="matchLoading">
-            <p class="dots-line">
-              AI 正在逐维度比对简历与岗位要求 <span class="dots"><i></i><i></i><i></i></span>
-            </p>
-          </template>
-          <template v-else-if="match">
-            <div class="score-row">
-              <div class="big-score" :class="scoreClass">{{ match.overall }}</div>
-              <div class="score-cap">
-                <b>整体匹配度</b>
-                <p>{{ match.summary }}</p>
-              </div>
-            </div>
-            <div ref="chartEl" class="chart"></div>
-            <div class="hl-gap">
-              <div class="hl">
-                <h3>✦ 亮点</h3>
-                <ul><li v-for="(h, i) in match.highlights" :key="i">{{ h }}</li></ul>
-              </div>
-              <div class="gap">
-                <h3>⚠ 短板</h3>
-                <ul><li v-for="(g, i) in match.gaps" :key="i">{{ g }}</li></ul>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <p class="err">{{ state.error || '匹配分析未生成' }}</p>
-            <button class="ghost" @click="loadMatch">重试分析</button>
-          </template>
-        </section>
-      </div>
-
-      <!-- 第三步:选择面试官风格并开始 -->
-      <section class="panel start-zone" v-if="match">
+      <section class="panel start-zone">
         <h2>选择你的 AI 面试官</h2>
         <div class="styles">
           <label v-for="s in STYLES" :key="s.key" class="style" :class="{ on: style === s.key }">
@@ -110,11 +79,10 @@
 </template>
 
 <script>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { candidates, interviews, jobs } from '../api'
-import { storeInterviewToken } from '../access'
-import { init as initChart } from '../lib/echarts'
+import { storeCandidate, storeInterviewToken } from '../access'
 
 const STYLES = [
   {
@@ -146,10 +114,6 @@ export default {
     const route = useRoute()
     const router = useRouter()
     const jobId = Number(route.params.jobId)
-    const fileInput = ref(null)
-    const chartEl = ref(null)
-    let chart = null
-    let matchRequestId = 0
     let disposed = false
 
     const state = reactive({
@@ -160,8 +124,6 @@ export default {
       error: '',
     })
     const dragHover = ref(false)
-    const match = ref(null)
-    const matchLoading = ref(false)
     const style = ref('pro')
 
     const styleName = computed(
@@ -181,76 +143,13 @@ export default {
       }
     })
 
-    const scoreClass = computed(() => {
-      const v = match.value?.overall || 0
-      return v >= 75 ? 'high' : v >= 55 ? 'mid' : 'low'
-    })
-
-    function renderChart() {
-      const el = chartEl.value
-      const dims = match.value?.dimension_scores || []
-      if (!el || !dims.length) return
-      if (!chart) chart = initChart(el)
-      chart.setOption({
-        radar: {
-          indicator: dims.map((d) => ({ name: d.name, max: 10 })),
-          radius: '62%',
-        },
-        tooltip: {},
-        series: [
-          {
-            type: 'radar',
-            data: [
-              {
-                value: dims.map((d) => d.score),
-                name: '简历匹配度',
-                areaStyle: { opacity: 0.25 },
-                lineStyle: { color: '#1a73e8' },
-                itemStyle: { color: '#1a73e8' },
-              },
-            ],
-          },
-        ],
-      })
-    }
-
-    function disposeChart() {
-      chart?.dispose()
-      chart = null
-    }
-
-    async function loadMatch() {
-      if (!state.cand || disposed) return
-      const requestId = ++matchRequestId
-      disposeChart()
-      match.value = null
-      matchLoading.value = true
-      state.error = ''
-      try {
-        const result = await candidates.match(
-          state.cand.id,
-          jobId,
-          state.cand.access_token
-        )
-        if (requestId === matchRequestId && !disposed) match.value = result
-      } catch (e) {
-        if (requestId === matchRequestId && !disposed) state.error = e.message
-      } finally {
-        if (requestId === matchRequestId && !disposed) {
-          matchLoading.value = false
-          await nextTick()
-          if (requestId === matchRequestId && !disposed) renderChart()
-        }
-      }
-    }
-
     async function handleFile(file) {
       if (!file || state.uploading || disposed) return
       state.uploading = true
       state.error = ''
       try {
         state.cand = await candidates.upload(file)
-        await loadMatch()
+        storeCandidate(state.cand)
       } catch (e) {
         state.error = e.message
       } finally {
@@ -269,11 +168,7 @@ export default {
     }
 
     function reupload() {
-      matchRequestId++
-      matchLoading.value = false
-      disposeChart()
       state.cand = null
-      match.value = null
       state.error = ''
     }
 
@@ -292,7 +187,6 @@ export default {
     }
 
     onMounted(async () => {
-      window.addEventListener('resize', onResize)
       try {
         state.job = await jobs.get(jobId)
         if (!state.job.dimensions || !state.job.dimensions.length) {
@@ -303,34 +197,21 @@ export default {
       }
     })
 
-    function onResize() {
-      chart?.resize()
-    }
-
     onBeforeUnmount(() => {
       disposed = true
-      matchRequestId++
-      window.removeEventListener('resize', onResize)
-      disposeChart()
     })
 
     return {
       state,
       jobId,
-      fileInput,
-      chartEl,
       dragHover,
-      match,
-      matchLoading,
       style,
       STYLES,
       styleName,
       brief,
-      scoreClass,
       onFile,
       onDrop,
       reupload,
-      loadMatch,
       start,
     }
   },
@@ -470,7 +351,6 @@ button.primary.big {
 }
 
 button.ghost {
-  margin-top: 14px;
   border: 1px solid #dde3ec;
   background: #fff;
   border-radius: 999px;
@@ -521,22 +401,18 @@ button.ghost:hover {
   30% { transform: translateY(-5px); opacity: 1; }
 }
 
-/* 分析两栏 */
-.two-col {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 16px;
-  align-items: stretch;
-}
-
-.two-col .panel {
-  margin-bottom: 0;
-}
-
+/* 简历档案 */
 .panel h2 {
   font-size: 15px;
   color: #2c3e50;
   margin-bottom: 12px;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .cand-name {
@@ -566,68 +442,16 @@ button.ghost:hover {
   word-break: break-all;
 }
 
-.score-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 6px;
-}
-
-.big-score {
-  font-size: 44px;
-  font-weight: 800;
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.big-score.high { background: #e8f5e9; color: #1a7f37; }
-.big-score.mid { background: #fff7e6; color: #b26a00; }
-.big-score.low { background: #fdecea; color: #e5533d; }
-
-.score-cap b {
-  font-size: 14px;
-  color: #2c3e50;
-}
-
-.score-cap p {
+.match-link {
+  display: inline-block;
+  margin-top: 12px;
   font-size: 13px;
-  color: #6b7a8d;
-  line-height: 1.7;
-  margin-top: 4px;
+  color: #1a73e8;
+  text-decoration: none;
 }
 
-.chart {
-  height: 280px;
-}
-
-.hl-gap {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.hl h3, .gap h3 {
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-
-.hl h3 { color: #1a7f37; }
-.gap h3 { color: #b26a00; }
-
-.hl ul, .gap ul {
-  padding-left: 16px;
-}
-
-.hl li, .gap li {
-  font-size: 12.5px;
-  color: #4b5a6a;
-  line-height: 1.8;
+.match-link:hover {
+  text-decoration: underline;
 }
 
 /* 风格选择 */
@@ -695,10 +519,6 @@ button.ghost:hover {
 }
 
 @media (max-width: 820px) {
-  .two-col {
-    grid-template-columns: 1fr;
-  }
-
   .styles {
     grid-template-columns: 1fr;
   }

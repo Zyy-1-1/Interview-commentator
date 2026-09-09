@@ -22,21 +22,79 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+@router.get("/facets")
+def job_facets(db: Session = Depends(get_db)):
+    """大厅筛选栏可选值:从已上架岗位里聚合出真实存在的类别/学历/招聘类型。"""
+    rows = db.query(Job).filter(Job.status == "approved").all()
+
+    def _distinct(key):
+        seen, out = set(), []
+        for r in rows:
+            v = getattr(r, key)
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out
+
+    sal = [
+        (r.salary_min, r.salary_max)
+        for r in rows
+        if r.salary_min is not None or r.salary_max is not None
+    ]
+    return {
+        "categories": _distinct("category"),
+        "educations": _distinct("education"),
+        "recruit_types": _distinct("recruit_type"),
+        "salary_floor": min([s[0] for s in sal if s[0] is not None], default=0),
+        "salary_ceiling": max([s[1] for s in sal if s[1] is not None], default=0),
+    }
+
+
 @router.get("", response_model=list[JobOut])
 def list_jobs(
     status: str = "approved",
+    category: str | None = None,
+    education: str | None = None,
+    recruit_type: str | None = None,
+    major: str | None = None,
+    salary_min: int | None = None,
+    salary_max: int | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
     passphrase: Annotated[str | None, Header(alias=REVIEW_HEADER)] = None,
 ):
-    """大厅默认只看已上架岗位;审核页传 status=pending / all。"""
+    """大厅默认只看已上架岗位;审核页传 status=pending / all。
+
+    任务4:支持按岗位类别、学历、校招/社招/实习、专业、薪资区间、关键词筛选。
+    """
     if status not in {"approved", "pending", "rejected", "all"}:
         raise HTTPException(422, "status 仅支持 approved/pending/rejected/all")
     if status != "approved":
         verify_review_passphrase(passphrase)
-    q = db.query(Job).order_by(Job.created_at.desc())
+    query = db.query(Job).order_by(Job.created_at.desc())
     if status != "all":
-        q = q.filter(Job.status == status)
-    return q.all()
+        query = query.filter(Job.status == status)
+    if category:
+        query = query.filter(Job.category == category)
+    if education:
+        query = query.filter(Job.education == education)
+    if recruit_type:
+        query = query.filter(Job.recruit_type == recruit_type)
+    if major:
+        # majors 为自由文本(如「计算机 / 软件工程」),做包含匹配;「不限」视为通用
+        kw = major.strip()
+        query = query.filter(Job.majors.like(f"%{kw}%"))
+    if salary_min is not None:
+        # 岗位薪资上限需 ≥ 用户期望下限
+        query = query.filter(Job.salary_max >= salary_min)
+    if salary_max is not None:
+        query = query.filter(Job.salary_min <= salary_max)
+    if q:
+        kw = f"%{q.strip()}%"
+        query = query.filter(
+            Job.title.like(kw) | Job.company.like(kw) | Job.jd_text.like(kw)
+        )
+    return query.all()
 
 
 @router.post("", response_model=JobOut)

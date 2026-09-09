@@ -10,6 +10,10 @@ function candidateHeaders(token) {
   return token ? { 'X-Candidate-Token': token } : {}
 }
 
+function communityHeaders(token) {
+  return token ? { 'X-Community-Token': token } : {}
+}
+
 async function request(path, options = {}) {
   let resp
   const controller = new AbortController()
@@ -47,6 +51,16 @@ export const jobs = {
     request(`/jobs?status=${encodeURIComponent(status)}`, {
       headers: adminHeaders(passphrase),
     }),
+  // 任务4:带分类筛选的岗位查询(filters 为 {category,education,recruit_type,major,salary_min,salary_max,q})
+  search: (filters = {}) => {
+    const params = new URLSearchParams({ status: 'approved' })
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== '' && v != null) params.set(k, v)
+    }
+    return request(`/jobs?${params.toString()}`)
+  },
+  // 筛选项可选值(类别/学历/招聘类型/薪资范围)
+  facets: () => request('/jobs/facets'),
   get: (id) => request(`/jobs/${id}`),
   create: (title, jdText, company) =>
     request('/jobs', {
@@ -125,5 +139,29 @@ export const interviews = {
     request(`/interviews/${id}/evaluate`, {
       method: 'POST',
       headers: candidateHeaders(token),
+    }),
+}
+
+export const community = {
+  me: (token) => request('/community/me', { headers: communityHeaders(token) }),
+  list: (token) => request('/community/posts', { headers: communityHeaders(token) }),
+  create: (token, title, content) =>
+    request('/community/posts', {
+      method: 'POST',
+      headers: communityHeaders(token),
+      body: JSON.stringify({ title, content }),
+    }),
+  get: (id, token) =>
+    request(`/community/posts/${id}`, { headers: communityHeaders(token) }),
+  comment: (id, token, content) =>
+    request(`/community/posts/${id}/comments`, {
+      method: 'POST',
+      headers: communityHeaders(token),
+      body: JSON.stringify({ content }),
+    }),
+  like: (id, token) =>
+    request(`/community/posts/${id}/like`, {
+      method: 'POST',
+      headers: communityHeaders(token),
     }),
 }

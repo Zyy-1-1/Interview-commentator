@@ -39,9 +39,10 @@ def health():
 
 
 # 路由
-from .api import candidates, interviews, jobs, reports  # noqa: E402
+from .api import candidates, community, interviews, jobs, reports  # noqa: E402
 
 app.include_router(jobs.router)
 app.include_router(candidates.router)
 app.include_router(interviews.router)
 app.include_router(reports.router)
+app.include_router(community.router)

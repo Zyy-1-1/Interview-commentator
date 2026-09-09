@@ -23,6 +23,16 @@ class JobOut(BaseModel):
     status: str = "approved"
     review_note: Optional[str] = None
     dimensions: Optional[list] = None
+    # 分类筛选字段
+    category: Optional[str] = None
+    education: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    salary_months: Optional[int] = None
+    recruit_type: Optional[str] = None
+    majors: Optional[str] = None
+    location: Optional[str] = None
+    is_official: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -162,3 +172,47 @@ class InterviewStateOut(BaseModel):
     """会话状态(进度),供前端轮询/展示。"""
     status: str
     progress: dict[str, Any]
+
+
+# ---------- Community(任务5:牛客式交流区) ----------
+class PostCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=2, max_length=100)
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class CommentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class CommentOut(BaseModel):
+    id: int
+    post_id: int
+    content: str
+    author_name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PostOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    author_name: str
+    likes_count: int = 0
+    comment_count: int = 0
+    liked_by_me: bool = False
+    created_at: datetime
+
+
+class PostDetailOut(PostOut):
+    comments: list[CommentOut] = []
+
+
+class LikeOut(BaseModel):
+    liked: bool
+    likes_count: int

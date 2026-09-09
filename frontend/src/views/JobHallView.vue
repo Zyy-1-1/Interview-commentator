@@ -9,32 +9,107 @@
         </div>
       </div>
       <nav class="nav">
-        <router-link class="nav-link" to="/jobs/submit">发布招聘信息</router-link>
+        <router-link class="nav-link" to="/match">简历评审</router-link>
+        <router-link class="nav-link ghost" to="/community">交流区</router-link>
+        <router-link class="nav-link ghost" to="/jobs/submit">发布招聘信息</router-link>
         <router-link class="nav-link ghost" to="/review">官方审核</router-link>
       </nav>
     </header>
 
     <section class="hero">
       <h1>选一个岗位,先让 AI 面试官面你一次</h1>
-      <p>上传简历 → 查看人岗匹配分析 → 与数字人面试官模拟对话 → 拿到你的专属竞争力报告</p>
+      <p>上传简历 → 与数字人面试官模拟对话 → 拿到你的专属竞争力报告(简历评审单可在「简历评审」页查看)</p>
+    </section>
+
+    <!-- 筛选栏 -->
+    <section class="filters">
+      <div class="filters-row">
+        <input
+          v-model.trim="filters.q"
+          class="search"
+          type="search"
+          placeholder="搜索岗位 / 公司 / 关键词…"
+          @input="debouncedLoad"
+        />
+      </div>
+      <div class="filters-row chips">
+        <div class="field">
+          <label>岗位类别</label>
+          <select v-model="filters.category" @change="load">
+            <option value="">全部</option>
+            <option v-for="c in facets.categories" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>招聘类型</label>
+          <select v-model="filters.recruit_type" @change="load">
+            <option value="">全部</option>
+            <option v-for="c in facets.recruit_types" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>学历要求</label>
+          <select v-model="filters.education" @change="load">
+            <option value="">全部</option>
+            <option v-for="c in facets.educations" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>期望月薪(起)</label>
+          <input
+            v-model.number="filters.salary_min"
+            type="number"
+            min="0"
+            placeholder="如 20"
+            class="num"
+            @change="load"
+          />
+        </div>
+        <div class="field grow">
+          <label>专业</label>
+          <input
+            v-model.trim="filters.major"
+            type="text"
+            placeholder="如 计算机 / 电气…"
+            @input="debouncedLoad"
+          />
+        </div>
+        <button v-if="hasFilter" class="reset" @click="resetFilters">清除筛选</button>
+      </div>
+      <p class="result-count">
+        共 <b>{{ state.jobs.length }}</b> 个岗位
+        <span v-if="hasFilter">(已筛选)</span>
+      </p>
     </section>
 
     <main class="body">
       <p v-if="state.loading" class="tip">加载岗位中…</p>
       <p v-else-if="state.error" class="tip err">{{ state.error }}</p>
       <div v-else-if="!state.jobs.length" class="tip">
-        暂无已上架岗位,<router-link to="/jobs/submit">去发布一个</router-link>
+        没有符合条件的岗位,试试<router-link to="/" @click.prevent="resetFilters">清除筛选</router-link>
       </div>
       <div v-else class="grid">
         <article v-for="j in state.jobs" :key="j.id" class="card">
           <div class="card-head">
-            <h2 class="title">{{ j.title }}</h2>
+            <h2 class="title">
+              {{ j.title }}
+              <span v-if="j.is_official" class="badge">官方</span>
+            </h2>
             <span class="company">{{ j.company || '面评家官方岗位' }}</span>
           </div>
           <p class="jd">{{ (j.jd_text || '').slice(0, 90) }}…</p>
-          <div class="dims" v-if="dimNames(j).length">
-            <span class="chip" v-for="d in dimNames(j)" :key="d">{{ d }}</span>
+          <div class="tags">
+            <span class="chip cat" v-if="j.category">{{ j.category }}</span>
+            <span class="chip rec" v-if="j.recruit_type">{{ j.recruit_type }}</span>
+            <span class="chip edu" v-if="j.education">{{ j.education }}</span>
+            <span class="chip sal" v-if="j.salary_min || j.salary_max">
+              {{ salaryText(j) }}
+            </span>
           </div>
+          <p class="meta" v-if="j.location || j.majors">
+            <span v-if="j.location">📍 {{ j.location }}</span>
+            <span v-if="j.majors" class="mj"> · 专业:{{ j.majors }}</span>
+          </p>
           <div class="card-foot">
             <span class="dim-count" v-if="j.dimensions">
               {{ j.dimensions.length }} 个考察维度
@@ -54,7 +129,7 @@
 </template>
 
 <script>
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { jobs } from '../api'
 
@@ -63,8 +138,56 @@ export default {
   setup() {
     const router = useRouter()
     const state = reactive({ jobs: [], loading: true, error: '' })
+    const facets = reactive({ categories: [], educations: [], recruit_types: [] })
+    const filters = reactive({
+      q: '',
+      category: '',
+      recruit_type: '',
+      education: '',
+      salary_min: '',
+      major: '',
+    })
 
-    const dimNames = (j) => (j.dimensions || []).slice(0, 4).map((d) => d.name)
+    const hasFilter = computed(() =>
+      Object.values(filters).some((v) => v !== '' && v != null)
+    )
+
+    let timer = null
+    function debouncedLoad() {
+      clearTimeout(timer)
+      timer = setTimeout(load, 300)
+    }
+
+    function salaryText(j) {
+      const lo = j.salary_min
+      const hi = j.salary_max
+      const range = lo && hi ? `${lo}-${hi}K` : hi ? `≤${hi}K` : `${lo}K+`
+      return j.salary_months && j.salary_months !== 12
+        ? `${range}·${j.salary_months}薪`
+        : range
+    }
+
+    async function load() {
+      state.loading = true
+      state.error = ''
+      try {
+        state.jobs = await jobs.search(filters)
+      } catch (e) {
+        state.error = e.message
+      } finally {
+        state.loading = false
+      }
+    }
+
+    function resetFilters() {
+      filters.q = ''
+      filters.category = ''
+      filters.recruit_type = ''
+      filters.education = ''
+      filters.salary_min = ''
+      filters.major = ''
+      load()
+    }
 
     function go(j) {
       if (!j.dimensions || !j.dimensions.length) return
@@ -73,15 +196,17 @@ export default {
 
     onMounted(async () => {
       try {
-        state.jobs = await jobs.list('approved')
+        const f = await jobs.facets()
+        facets.categories = f.categories || []
+        facets.educations = f.educations || []
+        facets.recruit_types = f.recruit_types || []
       } catch (e) {
-        state.error = e.message
-      } finally {
-        state.loading = false
+        /* facets 失败不阻断大厅加载 */
       }
+      load()
     })
 
-    return { state, dimNames, go }
+    return { state, facets, filters, hasFilter, load, debouncedLoad, resetFilters, go, salaryText }
   },
 }
 </script>
@@ -163,7 +288,7 @@ export default {
 
 .hero {
   text-align: center;
-  padding: 40px 16px 30px;
+  padding: 30px 16px 22px;
 }
 
 .hero h1 {
@@ -177,9 +302,108 @@ export default {
   color: #6b7a8d;
 }
 
+/* 筛选栏 */
+.filters {
+  background: #fff;
+  border: 1px solid #e4e9f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  box-shadow: 0 3px 12px rgba(30, 60, 110, 0.05);
+}
+
+.filters-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filters-row + .filters-row {
+  margin-top: 10px;
+}
+
+.search {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #dde3ec;
+  border-radius: 10px;
+  color: #2c3e50;
+}
+
+.search:focus {
+  outline: none;
+  border-color: #1a73e8;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.field.grow {
+  flex: 2;
+  min-width: 160px;
+}
+
+.field label {
+  font-size: 11px;
+  color: #8a97a8;
+}
+
+.field select,
+.field input {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #dde3ec;
+  border-radius: 9px;
+  color: #2c3e50;
+  background: #fff;
+}
+
+.field select:focus,
+.field input:focus {
+  outline: none;
+  border-color: #1a73e8;
+}
+
+.field input.num {
+  max-width: 100px;
+}
+
+button.reset {
+  align-self: flex-end;
+  border: 1px solid #dde3ec;
+  background: #fff;
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #e5533d;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.reset:hover {
+  border-color: #e5533d;
+}
+
+.result-count {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #8a97a8;
+}
+
+.result-count b {
+  color: #1a73e8;
+}
+
+/* 卡片 */
 .grid {
   display: grid;
-  /* min(300px,100%) 防止窄屏下 minmax 下限撑破容器 */
   grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
@@ -210,6 +434,19 @@ export default {
 .title {
   font-size: 16px;
   color: #2c3e50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #b26a00;
+  background: #fff3d6;
+  border: 1px solid #ffe0a3;
+  padding: 1px 6px;
+  border-radius: 5px;
 }
 
 .company {
@@ -224,7 +461,7 @@ export default {
   flex: 1;
 }
 
-.dims {
+.tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -232,10 +469,23 @@ export default {
 
 .chip {
   font-size: 11px;
-  color: #1a73e8;
-  background: #e8f1fd;
   padding: 3px 9px;
   border-radius: 999px;
+}
+
+.chip.cat { color: #1a73e8; background: #e8f1fd; }
+.chip.rec { color: #7a3ff2; background: #f0e9fd; }
+.chip.edu { color: #2e9e6b; background: #e6f6ee; }
+.chip.sal { color: #c2410c; background: #feeadd; font-weight: 600; }
+
+.meta {
+  font-size: 11.5px;
+  color: #8a97a8;
+  line-height: 1.5;
+}
+
+.meta .mj {
+  color: #9aa5b1;
 }
 
 .card-foot {
@@ -298,7 +548,7 @@ export default {
   }
 
   .hero {
-    padding: 26px 2px 20px;
+    padding: 20px 2px 16px;
   }
 
   .hero h1 {
@@ -307,6 +557,15 @@ export default {
 
   .hero p {
     font-size: 12.5px;
+  }
+
+  .field,
+  .field.grow {
+    min-width: 46%;
+  }
+
+  button.reset {
+    width: 100%;
   }
 
   .grid {

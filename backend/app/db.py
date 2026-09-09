@@ -35,6 +35,15 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("company", "VARCHAR(255)"),
         ("status", "VARCHAR(16) DEFAULT 'approved'"),
         ("review_note", "VARCHAR(500)"),
+        ("category", "VARCHAR(32)"),
+        ("education", "VARCHAR(16)"),
+        ("salary_min", "INTEGER"),
+        ("salary_max", "INTEGER"),
+        ("salary_months", "INTEGER"),
+        ("recruit_type", "VARCHAR(16)"),
+        ("majors", "VARCHAR(255)"),
+        ("location", "VARCHAR(128)"),
+        ("is_official", "INTEGER DEFAULT 0"),
     ],
     "candidates": [
         ("access_token_hash", "VARCHAR(64)"),
@@ -51,10 +60,15 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
 
 _INDEXES: tuple[tuple[str, str, str], ...] = (
     ("jobs", "ix_jobs_status_created", "status, created_at"),
+    ("jobs", "ix_jobs_category", "category"),
+    ("jobs", "ix_jobs_recruit_type", "recruit_type"),
     ("candidates", "ix_candidates_created", "created_at"),
     ("interviews", "ix_interviews_job_status_created", "job_id, status, created_at"),
     ("interviews", "ix_interviews_candidate_created", "candidate_id, created_at"),
     ("interview_messages", "ix_messages_interview_id", "interview_id, id"),
+    ("posts", "ix_posts_created", "created_at"),
+    ("comments", "ix_comments_post_id", "post_id, id"),
+    ("post_likes", "ix_post_likes_token", "token_hash, post_id"),
 )
 
 

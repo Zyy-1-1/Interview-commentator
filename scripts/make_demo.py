@@ -5,9 +5,12 @@
     python scripts/make_demo.py
 
 注意:
-- 会清空 jobs / candidates / interviews / interview_messages 四张表后重建;
+- 会清空 jobs / candidates / interviews / interview_messages / posts / comments /
+  post_likes 七张表后重建;
 - 推荐在后端未启动时运行;若后端正在运行,请确认没有进行中的请求;
-- 演示数据:5 个岗位 + 20 份简历 + 3 场已完成面试(含报告)+ 2 场进行中面试。
+- 演示数据:18 个官方精选岗位(多行业,见 official_jobs.py)+ 5 个通用演示岗位
+  + 20 份简历 + 3 场已完成面试(含报告)+ 2 场进行中面试
+  + 6 个交流区帖子(面经/爆料/求助,含评论与点赞)。
 """
 import json
 import os
@@ -19,12 +22,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # 固定路径:无论从哪个目录调用,都以「后端目录」为基准
 # (使 sqlite:///./interview.db 解析到 backend/interview.db,.env 也能被读到)
-BACKEND_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
-)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "backend"))
+sys.path.insert(0, SCRIPT_DIR)  # 便于 import official_jobs
 sys.path.insert(0, BACKEND_DIR)
 os.chdir(BACKEND_DIR)
 
+from official_jobs import OFFICIAL_JOBS  # noqa: E402
 from app.agents.interviewer.graph import DEFAULT_CLOSING  # noqa: E402
 from app.agents.interviewer.state import (  # noqa: E402
     ACTION_CLOSING,
@@ -33,16 +37,26 @@ from app.agents.interviewer.state import (  # noqa: E402
     PHASE_PROBING,
 )
 from app.db import SessionLocal, init_db  # noqa: E402
-from app.models import Candidate, Interview, InterviewMessage, Job  # noqa: E402
+from app.models import (  # noqa: E402
+    Candidate,
+    Comment,
+    Interview,
+    InterviewMessage,
+    Job,
+    Post,
+    PostLike,
+)
 from app.security import hash_candidate_token  # noqa: E402
 
 DEMO_ACCESS_TOKEN = "demo-local-access-token"
 
 
 # ============================================================ 岗位定义
+# 5 个通用演示岗位(面试记录按 title 引用,保持不动);分类字段用 DEMO_META 回填
 JOBS = [
     {
         "title": "Python 后端开发工程师",
+        "company": "面评家精选科技",
         "jd_text": (
             "负责核心业务后端服务的设计与开发,参与高并发场景优化;"
             "熟悉 Python 及主流 Web 框架,具备 MySQL/Redis 实战经验;"
@@ -366,6 +380,122 @@ INTERVIEWS = [
 ]
 
 
+# 5 个通用演示岗位的分类字段回填(与官方岗位一起支持任务4的筛选)
+DEMO_META = {
+    "Python 后端开发工程师": {
+        "company": "面评家精选科技", "category": "技术研发", "education": "本科",
+        "salary_min": 15, "salary_max": 28, "salary_months": 12,
+        "recruit_type": "社招", "majors": "计算机 / 软件工程", "location": "远程 / 不限",
+    },
+    "Web 前端开发工程师(Vue3)": {
+        "company": "面评家精选科技", "category": "技术研发", "education": "本科",
+        "salary_min": 13, "salary_max": 25, "salary_months": 12,
+        "recruit_type": "社招", "majors": "计算机 / 数字媒体技术", "location": "武汉 / 远程",
+    },
+    "数据分析师": {
+        "company": "面评家精选咨询", "category": "数据分析", "education": "本科",
+        "salary_min": 12, "salary_max": 22, "salary_months": 12,
+        "recruit_type": "校招", "majors": "统计 / 数学 / 经济学", "location": "武汉",
+    },
+    "产品经理": {
+        "company": "面评家精选科技", "category": "产品策划", "education": "本科",
+        "salary_min": 15, "salary_max": 28, "salary_months": 12,
+        "recruit_type": "校招", "majors": "不限(计算机 / 商科优先)", "location": "北京 / 上海",
+    },
+    "测试工程师": {
+        "company": "面评家精选科技", "category": "技术研发", "education": "本科",
+        "salary_min": 11, "salary_max": 20, "salary_months": 12,
+        "recruit_type": "社招", "majors": "计算机 / 软件工程", "location": "武汉 / 深圳",
+    },
+}
+
+
+# ============================================================ 交流区帖子(任务5 牛客式板块)
+# hours_ago:发帖时间偏移;likers:虚拟点赞人数;comments 内 minutes_after 相对发帖时间。
+POSTS = [
+    {
+        "title": "刚面完腾讯后台开发一面,八股占比好高,互助模拟",
+        "content": (
+            "流程约 45 分钟:自我介绍 5 分钟,项目深挖 15 分钟,剩下全在问"
+            "MySQL 索引、Redis 缓存一致性、TCP 三次握手,最后手撕了一道链表。"
+            "感觉项目讲得太散被打断了,有没有一起练模拟面的,互相当面试官?"
+        ),
+        "author": "想进鹅厂的咸鱼",
+        "hours_ago": 72,
+        "likers": 12,
+        "comments": [
+            {"author": "秋招渡劫中", "content": "同一天面的,我也被手撕了,链表环检测没写出来,寄了…", "minutes_after": 25},
+            {"author": "面评家用户_a1f3", "content": "推荐先在面评家跑一场压力面,被追问到答不上来的点就是面试官会挖的点。", "minutes_after": 90},
+        ],
+    },
+    {
+        "title": "字节大模型算法 35-60K 的 sp 到底什么水平才能拿到?",
+        "content": (
+            "看到官方精选岗位挂了 35-60K·15 薪,想问问在过的学长:是必须有顶会一作,还是"
+            "开源微调项目足够亮眼也行?双九硕士,两段实习(一段 AIGC 创业公司),有几成把握?"
+        ),
+        "author": "梯度下降爱好者",
+        "hours_ago": 46,
+        "likers": 9,
+        "comments": [
+            {"author": "内部人士(匿名)", "content": "区间上半段基本要论文或规模化训练经验,下半段强开源项目+实习对口的机会不小。", "minutes_after": 40},
+            {"author": "摸鱼的小仙女", "content": "留个蹲,我也在准备这个方向,想问问面试会考手推反向传播吗?", "minutes_after": 150},
+        ],
+    },
+    {
+        "title": "双非本科简历被刷三个月,用 AI 模拟面打了个 61 分,突然想通了",
+        "content": (
+            "之前海投全已读不回。今天上传简历做了人岗匹配,评审单直接写我「框架使用熟练但 JS 底层停留在记忆层」。"
+            "模拟面试果然追着闭包和事件循环问,我答得磕磕绊绊。至少知道接下来两个月该补什么了,先立个帖打卡。"
+        ),
+        "author": "岸上的鱼干",
+        "hours_ago": 30,
+        "likers": 7,
+        "comments": [
+            {"author": "秋招渡劫中", "content": "打卡+1,简历评审单里那句「缺少工程佐证」真的扎心但有用。", "minutes_after": 12},
+        ],
+    },
+    {
+        "title": "宁德时代电池材料岗面试经历:电池基础 + 项目连环拷问",
+        "content": (
+            "工艺工程师方向,一面是主管面。问了磷酸铁锂和三元的热稳定性差异、涂布工序常见缺陷,然后把我的毕设从"
+            "表征方法一路问到量产放大。材料同学建议把实验细节复盘到「为什么这么选」这一层。"
+        ),
+        "author": "锂电搬砖工",
+        "hours_ago": 20,
+        "likers": 4,
+        "comments": [
+            {"author": "材料学学姐", "content": "补充一句:他们很看重出差支持产线的意愿,面试最好主动表态。", "minutes_after": 35},
+        ],
+    },
+    {
+        "title": "工行星辰管培(科技菁英)笔试快到了,有人一起组队刷题吗",
+        "content": (
+            "群公告说 EPI+计算机基础+英语。计算机部分大概是数据库、网络、操作系统常识题,"
+            "有没有考过的说说占比?顺便蹲队友每天互相监督两小时。"
+        ),
+        "author": "星辰大海预备役",
+        "hours_ago": 6,
+        "likers": 3,
+        "comments": [
+            {"author": "去年上岸的咸菜", "content": "计算机占比不高但区分度大,数据库范式和网络那几道我错了俩,好好刷刷真题。", "minutes_after": 18},
+            {"author": "面评家用户_c9d2", "content": "蹲一个+1,坐标武汉,晚上八点后固定在线。", "minutes_after": 55},
+        ],
+    },
+    {
+        "title": "普华永道审计 A1 11-14K,还值得卷吗?",
+        "content": (
+            "拿到面试但有点犹豫,看到爆料薪资区间不算高,出差强度又大。"
+            "想问问在职的:两三年后跳企业内审或者财务,认可度真的像传说中那么高吗?"
+        ),
+        "author": "底稿侠",
+        "hours_ago": 1,
+        "likers": 1,
+        "comments": [],
+    },
+]
+
+
 # ============================================================ 构建器
 def _build_state(interview_id, dimensions, rounds, finished):
     """按真实状态机输出格式构造 Interview.state 快照。"""
@@ -491,18 +621,58 @@ def main():
     db = SessionLocal()
     try:
         # 1) 清空(按外键顺序)
+        db.query(Comment).delete()
+        db.query(PostLike).delete()
+        db.query(Post).delete()
         db.query(InterviewMessage).delete()
         db.query(Interview).delete()
         db.query(Candidate).delete()
         db.query(Job).delete()
 
-        # 2) 岗位
+        # 2) 岗位:5 个通用演示岗位(回填分类字段)+ 18 个官方精选岗位
         jobs = {}
         for j in JOBS:
-            job = Job(title=j["title"], jd_text=j["jd_text"], dimensions=json.dumps(j["dimensions"], ensure_ascii=False))
+            meta = DEMO_META.get(j["title"], {})
+            job = Job(
+                title=j["title"],
+                jd_text=j["jd_text"],
+                dimensions=json.dumps(j["dimensions"], ensure_ascii=False),
+                company=meta.get("company"),
+                category=meta.get("category"),
+                education=meta.get("education"),
+                salary_min=meta.get("salary_min"),
+                salary_max=meta.get("salary_max"),
+                salary_months=meta.get("salary_months"),
+                recruit_type=meta.get("recruit_type"),
+                majors=meta.get("majors"),
+                location=meta.get("location"),
+                is_official=0,
+                status="approved",
+            )
             db.add(job)
             db.flush()
             jobs[j["title"]] = (job, j["dimensions"])
+
+        for oj in OFFICIAL_JOBS:
+            job = Job(
+                title=oj["title"],
+                jd_text=oj["jd_text"],
+                dimensions=json.dumps(oj["dimensions"], ensure_ascii=False),
+                company=oj.get("company"),
+                category=oj.get("category"),
+                education=oj.get("education"),
+                salary_min=oj.get("salary_min"),
+                salary_max=oj.get("salary_max"),
+                salary_months=oj.get("salary_months"),
+                recruit_type=oj.get("recruit_type"),
+                majors=oj.get("majors"),
+                location=oj.get("location"),
+                is_official=1,
+                status="approved",
+            )
+            db.add(job)
+            db.flush()
+            jobs[oj["title"]] = (job, oj["dimensions"])
         db.commit()
 
         # 3) 候选人
@@ -554,12 +724,49 @@ def main():
 
         db.commit()
 
+        # 5) 交流区帖子 + 评论 + 点赞
+        for i, spec in enumerate(POSTS):
+            created_at = now - timedelta(hours=spec["hours_ago"])
+            post = Post(
+                title=spec["title"],
+                content=spec["content"],
+                author_name=spec["author"],
+                author_token_hash=hash_candidate_token(f"demo-post-{i}"),
+                likes_count=spec["likers"],
+                created_at=created_at,
+            )
+            db.add(post)
+            db.flush()
+            # 虚拟点赞人(每帖独立令牌哈希,满足 post_likes 唯一约束)
+            for k in range(spec["likers"]):
+                db.add(PostLike(post_id=post.id, token_hash=hash_candidate_token(f"demo-liker-{i}-{k}")))
+            for cm in spec.get("comments", []):
+                db.add(
+                    Comment(
+                        post_id=post.id,
+                        content=cm["content"],
+                        author_name=cm["author"],
+                        author_token_hash=hash_candidate_token(
+                            f"demo-commenter-{cm['author']}"
+                        ),
+                        created_at=created_at + timedelta(minutes=cm["minutes_after"]),
+                    )
+                )
+        db.commit()
+
         total_messages = db.query(InterviewMessage).count()
+        total_posts = db.query(Post).count()
+        total_comments = db.query(Comment).count()
+        total_likes = db.query(PostLike).count()
         total_candidates = db.query(Candidate).count()
         print("演示数据生成完成:")
-        print(f"   - 岗位 {len(JOBS)} 个")
+        print(
+            f"   - 岗位 {len(JOBS) + len(OFFICIAL_JOBS)} 个"
+            f"(官方精选 {len(OFFICIAL_JOBS)} + 通用演示 {len(JOBS)})"
+        )
         print(f"   - 候选人 {total_candidates} 人")
         print(f"   - 面试 {created} 场(已完成 3 + 进行中 2,消息共 {total_messages} 条)")
+        print(f"   - 交流区帖子 {total_posts} 个(评论 {total_comments} 条,点赞 {total_likes} 次)")
         finished_id = next(i for i, finished in demo_interviews if finished)
         ongoing_id = next(i for i, finished in demo_interviews if not finished)
         print("   匿名凭证通过 URL fragment 传入,读取后会自动从地址栏清除:")

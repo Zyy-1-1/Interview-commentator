@@ -1,6 +1,6 @@
 # 面评家 · AI 模拟面试官
 
-> 面向**应聘者**的自助闭环:打开首页就是岗位大厅 → 选岗位、上传简历(PDF/DOCX/MD/TXT,最大 10 MB)→ 先看「人岗匹配分析」再决定要不要面 → 挑一位数字人面试官风格(严谨技术官 / 亲和 HR / 压力面)→ 语音提问、文字答题的模拟面试 → 收尾自动输出**个人竞争力报告**(雷达图 + 原话证据 + 强项短板 + 提升建议)。
+> 面向**应聘者**的自助闭环:打开首页就是岗位大厅(**按类别/学历/薪资/校招社招/专业/关键词筛选**,含 18 个多行业官方精选岗位)→ 选岗位、上传简历(PDF/DOCX/MD/TXT,最大 10 MB)→ 先看「人岗匹配分析」再决定要不要面(也可到 `/match` 独立评审页)→ 挑一位数字人面试官风格(严谨技术官 / 亲和 HR / 压力面)→ 语音提问、文字答题的模拟面试 → 收尾自动输出**个人竞争力报告**(雷达图 + 原话证据 + 强项短板 + 提升建议)。另设**牛客式匿名交流区**(`/community`,发帖/评论/点赞,无账号)。
 >
 > 岗位侧配套治理:任何人可自助发布招聘信息,官方口令审核通过后才能上架大厅。
 >
@@ -11,12 +11,13 @@
 ## 一、产品闭环
 
 ```
-岗位大厅(首页,仅展示审核通过的岗位)
+岗位大厅(首页,仅展示审核通过的岗位;类别/学历/薪资/校招社招/专业/关键词筛选)
       │  选一个岗位 → /apply/{jobId}
       ▼
 上传简历(PDF/DOCX/MD/TXT,最大 10 MB)
       │  简历解析 Agent(pdfminer/python-docx → LLM 结构化)
       │  匹配 Agent:简历 × 岗位维度 → 匹配分 + 雷达 + 亮点/缺口
+      │  (也可在 /match 独立页做「简历评审」,不进入面试)
       ▼
 看完分析,再决定:换简历 or 开始模拟面试(选定面试官风格)
       │
@@ -31,6 +32,7 @@
 查看报告 /admin/reports/{id}(雷达图 + 原话证据 + 提升建议)
 
 支线:发布招聘信息 /jobs/submit → 官方审核 /review(口令门控)→ 上架大厅
+支线:匿名交流区 /community(发帖/评论/点赞,浏览器本地令牌身份,无账号)
 ```
 
 ## 二、技术栈
@@ -51,7 +53,8 @@
 
 ```
 ┌──────────── 前端 (Vue3, :5173) ─────────────────────────┐
-│  views/      岗位大厅 / 简历分析页 / 发布招聘 / 官方审核   │
+│  views/      岗位大厅(筛选) / 简历分析 / 简历评审 /       │
+│              发布招聘 / 官方审核 / 交流区(列表+详情)      │
 │  candidate/  数字人语音面试页(SVG + TTS + 聊天 UI)      │
 │  admin/      个人竞争力报告页(雷达图 + 证据)             │
 │  components/DigitalHuman.vue  composables/useSpeech.js   │
@@ -59,13 +62,13 @@
                     │ /api(dev 代理 → :8000)
 ┌───────────────────▼──────────────────────────────────────┐
 │ FastAPI (:8000)                                           │
-│  api/    jobs(提交/审核/上架)· candidates(上传/match)     │
-│          interviews(状态机答题闭环)· report               │
+│  api/    jobs(提交/审核/上架/筛选/facets)· candidates     │
+│          interviews(状态机答题闭环)· report · community   │
 │  agents/ resume_parser · jd_analyzer · matcher            │
 │          interviewer/(LangGraph 状态机,style 人格注入)    │
 │          evaluator(一次调用出个人评估报告)                 │
 │  llm.py  千问 client(chat_text / chat_json)              │
-│  SQLite + SQLAlchemy(4 张表 + 幂等补列迁移)               │
+│  SQLite + SQLAlchemy(7 张表 + 幂等补列迁移)               │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -83,9 +86,11 @@
 
 **匿名隐私凭证**:上传简历后服务端只返回一次随机访问令牌,数据库仅保存其 SHA-256;匹配、创建面试、答题、消息和报告接口均需 `X-Candidate-Token`。前端把令牌保存在当前浏览器会话中,无需注册账号。
 
+**交流区匿名身份**:浏览器本地随机生成令牌(`X-Community-Token`,sessionStorage 持久于会话内),服务端只存哈希并按哈希派生昵称(如「面评家用户_3f8a」);点赞以「帖子 × 令牌哈希」唯一约束做幂等 toggle。不存明文令牌、不可逆推真实身份,同一会话内发言/点赞身份稳定,关标签页即换新身份。
+
 **失败恢复**：匹配分析失败可直接重试；创建面试失败会在开始按钮下显示原因，保留当前简历、匹配结果和风格选择，再次点击即可重试。报告在后台生成，可查询状态并在失败后重试。
 
-技术方案与实验设计见 [参赛技术说明](docs/参赛技术说明-2026-09-06.md)，实际修复和验证结果见 [分批清单](docs/修复清单-2026-09-05.md)。
+技术方案与实验设计见 [参赛技术说明](docs/参赛技术说明-2026-09-06.md)，实际修复和验证结果见 [分批清单](docs/修复清单-2026-09-05.md)，岗位筛选/交流区/官方精选岗位等新功能见 [2026-09-09 更新清单](docs/更新清单-2026-09-09.md)。
 
 ## 四、仓库结构
 
@@ -99,20 +104,22 @@ Interview-commentator/
 │   ├── app/
 │   │   ├── main.py           # FastAPI 入口
 │   │   ├── config.py / db.py(补列迁移)/ models.py / schemas.py / llm.py
-│   │   ├── api/              # jobs · candidates · interviews
+│   │   ├── api/              # jobs · candidates · interviews · community
 │   │   └── agents/           # resume_parser · jd_analyzer · matcher
 │   │                         # interviewer/(含 PERSONAS)· evaluator
 │   └── tests/                # 离线测试(mock LLM,可离线跑)
 ├── frontend/src/
-│   ├── views/                # JobHallView · ResumeAnalysisView
-│   │                         # JobSubmitView · ReviewView
+│   ├── views/                # JobHallView(筛选)· ResumeAnalysisView
+│   │                         # MatchReportView(简历评审)· JobSubmitView
+│   │                         # ReviewView · CommunityView · PostDetailView
 │   ├── candidate/            # InterviewView(数字人 + TTS)
 │   ├── admin/                # ReportView(个人竞争力报告)
 │   ├── components/DigitalHuman.vue
 │   ├── composables/useSpeech.js
-│   └── api/index.js · router/index.js
+│   └── api/index.js · router/index.js · access.js · format.js
 └── scripts/
-    ├── make_demo.py          # 一键生成演示数据(5 岗位 + 20 简历 + 5 场面试)
+    ├── make_demo.py          # 一键生成演示数据(23 岗位 + 20 简历 + 5 场面试 + 6 帖子)
+    ├── official_jobs.py      # 18 个多行业官方精选岗位(离线预写,含维度清单)
     └── 演示脚本.md            # 现场演示走查 + 答辩叙事
 ```
 
@@ -157,8 +164,8 @@ npm run dev                        # http://localhost:5173
 
 或直接双击 `start_all.bat`(Windows)。
 
-- 首页 = 岗位大厅;简历分析 `/apply/{jobId}`;面试 `/interview/{id}`;报告 `/admin/reports/{id}`
-- 发布招聘 `/jobs/submit`;官方审核 `/review`(输入口令)
+- 首页 = 岗位大厅(支持类别/学历/薪资/校招社招/专业/关键词筛选);简历分析 `/apply/{jobId}`;简历评审 `/match`;面试 `/interview/{id}`;报告 `/admin/reports/{id}`
+- 发布招聘 `/jobs/submit`;官方审核 `/review`(输入口令);交流区 `/community`
 
 > Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程(重启时自动执行补列迁移)。
 
@@ -168,7 +175,7 @@ npm run dev                        # http://localhost:5173
 python scripts/make_demo.py
 ```
 
-5 个岗位 + 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)。会清空并重建四张表,完成后会打印带 `#access_token=...` fragment 的本地演示链接;前端读取后立即从地址栏清除。
+23 个岗位(18 官方精选 + 5 通用演示)+ 20 份简历 + 5 场面试(3 场已完成含报告,2 场进行中)+ 6 个交流区帖子(含评论与点赞)。会清空并重建七张表(jobs/candidates/interviews/interview_messages/posts/comments/post_likes),完成后会打印带 `#access_token=...` fragment 的本地演示链接;前端读取后立即从地址栏清除。
 
 ### 5. Docker 整站部署（本地）
 
@@ -196,7 +203,8 @@ Compose 需支持可选 env_file（2.24.0 或更新）。前端由 Nginx 提供�
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/jobs?status=approved` | 岗位大厅;查询 pending/all 需后台请求头 |
+| GET | `/api/jobs?status=approved` | 岗位大厅;支持 `category/education/recruit_type/major/salary_min/salary_max/q` 组合筛选;查 pending/all 需后台请求头 |
+| GET | `/api/jobs/facets` | 筛选栏可选值(从已上架岗位聚合类别/学历/招聘类型/薪资范围) |
 | POST | `/api/jobs` | 自助发布招聘,一律 pending 且不触发 LLM |
 | POST | `/api/jobs/review/auth` | 校验后台请求头 `X-Review-Passphrase` |
 | POST | `/api/jobs/review` | 后台审核;通过时分析 JD 并上架 |
@@ -211,10 +219,15 @@ Compose 需支持可选 env_file（2.24.0 或更新）。前端由 Nginx 提供�
 | GET | `/api/interviews/{id}/state` | 会话进度快照;需候选人令牌 |
 | GET | `/api/interviews/{id}/report` | 报告及生成状态；需候选人令牌，未生成时 report 为 null |
 | POST | `/api/interviews/{id}/evaluate` | 已结束面试补做或重试评估；新任务返回 202，已有报告返回 200 |
+| GET | `/api/community/me` | 回显本会话匿名昵称(`X-Community-Token`) |
+| GET/POST | `/api/community/posts` | 帖子列表(点赞/评论数、liked_by_me)/ 发帖 |
+| GET | `/api/community/posts/{id}` | 帖子详情(含评论) |
+| POST | `/api/community/posts/{id}/comments` | 发表评论 |
+| POST | `/api/community/posts/{id}/like` | 点赞切换(同一令牌幂等 toggle) |
 
 报告状态为 `not_started / pending / running / ready / failed`，`can_retry` 表示当前是否可发起评估。收尾请求落库后即安排后台线程评估，页面每 2 秒查询状态。数据库领取与任务编号阻止同一报告并发重复调用及旧任务覆盖新结果。当前使用进程内后台任务：服务重启不会自动恢复未完成任务，超过 120 秒（或模型总预算加 30 秒，取较大值）后可在报告页手动重试；查询状态不会触发模型。多节点部署或大规模队列需要独立任务系统。
 
-模型默认单次网络超时 `LLM_TIMEOUT_SECONDS=25`，多次尝试共享 `LLM_TOTAL_TIMEOUT_SECONDS=75` 秒重试预算（最大 80）；每次请求使用剩余预算收紧超时，鉴权与参数错误不重复请求。网络库的超时不等同于严格的进程执行时限。浏览器请求超时为 90 秒，生成报告已从答题请求中分离。
+模型默认单次网络超时 `LLM_TIMEOUT_SECONDS=45`，多次尝试共享 `LLM_TOTAL_TIMEOUT_SECONDS=90` 秒重试预算（上限 120）；每次请求使用剩余预算收紧超时，鉴权与参数错误不重复请求。原默认 25 秒恰好卡在实测人岗匹配调用（约 26 秒）之下，导致该接口随机超时 502，故放宽。网络库的超时不等同于严格的进程执行时限。浏览器请求超时为 90 秒，生成报告已从答题请求中分离。
 
 ## 八、测试
 
@@ -234,6 +247,7 @@ python -m pytest -m llm_live -q
 - `test_jobs_api.py`:自助提交 → pending → 口令审核 → 上架全流程
 - `test_matcher_and_style.py`:三种人格差异 + 协议不变 + 匹配 Agent
 - `test_evaluator.py`:评估报告结构
+- `test_community_api.py`:匿名发帖/评论/点赞幂等/输入校验
 
 > 策略:Agent / 状态机测试一律注入 **mock LLM**(fake 判断器),不依赖 API Key;即使 `backend/.env` 里存在 Key,默认测试也不会产生外部调用或费用。
 
@@ -248,4 +262,4 @@ python -m pytest -m llm_live -q
 
 ---
 
-**当前版本**:应聘者自助闭环改版(千问 + 数字人语音 + 岗位审核治理 + 幂等/并发保护)。
+**当前版本**:应聘者自助闭环改版(千问 + 数字人语音 + 岗位审核治理 + 幂等/并发保护)+ 大厅分类筛选、官方精选岗位、匿名交流区、独立简历评审页(2026-09-09)。

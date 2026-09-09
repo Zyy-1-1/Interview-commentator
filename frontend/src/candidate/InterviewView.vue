@@ -93,6 +93,11 @@
           <router-link class="done-btn" :to="`/admin/reports/${interviewId}`">
             查看报告进度与结果 →
           </router-link>
+          <router-link
+            v-if="jobId"
+            class="done-link"
+            :to="{ path: '/match', query: { job: jobId } }"
+          >查看简历评审单(人岗匹配)→</router-link>
         </div>
       </template>
     </main>
@@ -156,6 +161,7 @@ export default {
     const route = useRoute()
     const interviewId = Number(route.params.id)
     const accessToken = getInterviewToken(interviewId)
+    const jobId = ref(0)
     const chatBox = ref(null)
     const inputRef = ref(null)
     const speech = useSpeech()
@@ -238,6 +244,7 @@ export default {
         state.progress = s.progress
         const full = await interviews.get(interviewId, accessToken)
         chosenStyle.value = full.style || 'pro'
+        jobId.value = full.job_id || 0
         const msgs = await interviews.messages(interviewId, accessToken)
         state.messages = msgs.map((m) => ({ role: m.role, text: m.text }))
         if (s.status === 'finished') state.finished = true
@@ -336,6 +343,7 @@ export default {
 
     return {
       interviewId,
+      jobId,
       chatBox,
       inputRef,
       state,
@@ -807,6 +815,18 @@ export default {
 .done-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(26, 115, 232, 0.4);
+}
+
+.done-link {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.done-link:hover {
+  text-decoration: underline;
 }
 
 /* ---------- 输入区 ---------- */

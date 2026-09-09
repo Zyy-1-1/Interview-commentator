@@ -14,6 +14,7 @@ from .config import settings
 
 REVIEW_HEADER = "X-Review-Passphrase"
 CANDIDATE_HEADER = "X-Candidate-Token"
+COMMUNITY_HEADER = "X-Community-Token"
 
 
 def verify_review_passphrase(given: str | None) -> str:
