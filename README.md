@@ -11,6 +11,7 @@
 ## 一、产品闭环
 
 ```
+功能页共用三栏外壳 AppShell(header 品牌+搜索 / aside 导航+类别筛选 / main 页内容)
 岗位大厅(首页,仅展示审核通过的岗位;类别/学历/薪资/校招社招/专业/关键词筛选)
       │  选一个岗位 → /apply/{jobId}
       ▼
@@ -53,8 +54,10 @@
 
 ```
 ┌──────────── 前端 (Vue3, :5173) ─────────────────────────┐
-│  views/      岗位大厅(筛选) / 简历分析 / 简历评审 /       │
-│              发布招聘 / 官方审核 / 交流区(列表+详情)      │
+│  views/      AppShell 三栏外壳(header+aside+main)      │
+│              ├ main 子路由:岗位大厅(筛选)/ 简历评审 /   │
+│              │   交流区(列表+详情)/ 发布招聘 / 官方审核  │
+│              └ 全屏流程页:简历分析 / 报告               │
 │  candidate/  数字人语音面试页(SVG + TTS + 聊天 UI)      │
 │  admin/      个人竞争力报告页(雷达图 + 证据)             │
 │  components/DigitalHuman.vue  composables/useSpeech.js   │
@@ -109,9 +112,11 @@ Interview-commentator/
 │   │                         # interviewer/(含 PERSONAS)· evaluator
 │   └── tests/                # 离线测试(mock LLM,可离线跑)
 ├── frontend/src/
-│   ├── views/                # JobHallView(筛选)· ResumeAnalysisView
-│   │                         # MatchReportView(简历评审)· JobSubmitView
-│   │                         # ReviewView · CommunityView · PostDetailView
+│   ├── views/                # AppShell(header/aside/main 外壳)
+│   │                         # ├ JobHallView(筛选)· MatchReportView(评审)
+│   │                         # │ CommunityView · PostDetailView
+│   │                         # │ JobSubmitView · ReviewView
+│   │                         # └ ResumeAnalysisView(全屏流程页)
 │   ├── candidate/            # InterviewView(数字人 + TTS)
 │   ├── admin/                # ReportView(个人竞争力报告)
 │   ├── components/DigitalHuman.vue
@@ -164,7 +169,7 @@ npm run dev                        # http://localhost:5173
 
 或直接双击 `start_all.bat`(Windows)。
 
-- 首页 = 岗位大厅(支持类别/学历/薪资/校招社招/专业/关键词筛选);简历分析 `/apply/{jobId}`;简历评审 `/match`;面试 `/interview/{id}`;报告 `/admin/reports/{id}`
+- 首页 = 岗位大厅(与评审/交流区/发布/审核共用 header+aside+main 三栏外壳,切换只换主区内容;支持类别/学历/薪资/校招社招/专业/关键词筛选);简历分析 `/apply/{jobId}`;简历评审 `/match`;面试 `/interview/{id}`;报告 `/admin/reports/{id}`
 - 发布招聘 `/jobs/submit`;官方审核 `/review`(输入口令);交流区 `/community`
 
 > Windows 注意:本机 `uvicorn --reload` 不可靠,改后端代码需手动重启进程(重启时自动执行补列迁移)。

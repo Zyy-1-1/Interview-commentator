@@ -1,45 +1,13 @@
 <template>
-  <div class="hall">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-dot">🎙</span>
-        <div class="brand-text">
-          <span class="brand-name">面评家</span>
-          <span class="brand-sub">AI 模拟面试官 · 个人竞争力报告</span>
-        </div>
-      </div>
-      <nav class="nav">
-        <router-link class="nav-link" to="/match">简历评审</router-link>
-        <router-link class="nav-link ghost" to="/community">交流区</router-link>
-        <router-link class="nav-link ghost" to="/jobs/submit">发布招聘信息</router-link>
-        <router-link class="nav-link ghost" to="/review">官方审核</router-link>
-      </nav>
-    </header>
-
+  <div class="hall-page">
     <section class="hero">
-      <h1>选一个岗位,先让 AI 面试官面你一次</h1>
-      <p>上传简历 → 与数字人面试官模拟对话 → 拿到你的专属竞争力报告(简历评审单可在「简历评审」页查看)</p>
+      <h1>选一个岗位，先让 AI 面试官面你一次</h1>
+      <p>上传简历 → 与数字人面试官模拟对话 → 拿到你的专属竞争力报告（简历评审单可在「简历评审」页查看）</p>
     </section>
 
-    <!-- 筛选栏 -->
+    <!-- 辅助筛选条(类别与关键词由外壳的侧栏/顶栏驱动,走 URL query) -->
     <section class="filters">
       <div class="filters-row">
-        <input
-          v-model.trim="filters.q"
-          class="search"
-          type="search"
-          placeholder="搜索岗位 / 公司 / 关键词…"
-          @input="debouncedLoad"
-        />
-      </div>
-      <div class="filters-row chips">
-        <div class="field">
-          <label>岗位类别</label>
-          <select v-model="filters.category" @change="load">
-            <option value="">全部</option>
-            <option v-for="c in facets.categories" :key="c" :value="c">{{ c }}</option>
-          </select>
-        </div>
         <div class="field">
           <label>招聘类型</label>
           <select v-model="filters.recruit_type" @change="load">
@@ -77,71 +45,73 @@
         <button v-if="hasFilter" class="reset" @click="resetFilters">清除筛选</button>
       </div>
       <p class="result-count">
-        共 <b>{{ state.jobs.length }}</b> 个岗位
+        <b>{{ state.jobs.length }}</b> 个岗位
+        <span v-if="filters.category">· 类别「{{ filters.category }}」</span>
+        <span v-if="filters.q">· 搜索「{{ filters.q }}」</span>
         <span v-if="hasFilter">(已筛选)</span>
       </p>
     </section>
 
-    <main class="body">
-      <p v-if="state.loading" class="tip">加载岗位中…</p>
-      <p v-else-if="state.error" class="tip err">{{ state.error }}</p>
-      <div v-else-if="!state.jobs.length" class="tip">
-        没有符合条件的岗位,试试<router-link to="/" @click.prevent="resetFilters">清除筛选</router-link>
-      </div>
-      <div v-else class="grid">
-        <article v-for="j in state.jobs" :key="j.id" class="card">
-          <div class="card-head">
-            <h2 class="title">
-              {{ j.title }}
-              <span v-if="j.is_official" class="badge">官方</span>
-            </h2>
-            <span class="company">{{ j.company || '面评家官方岗位' }}</span>
-          </div>
-          <p class="jd">{{ (j.jd_text || '').slice(0, 90) }}…</p>
-          <div class="tags">
-            <span class="chip cat" v-if="j.category">{{ j.category }}</span>
-            <span class="chip rec" v-if="j.recruit_type">{{ j.recruit_type }}</span>
-            <span class="chip edu" v-if="j.education">{{ j.education }}</span>
-            <span class="chip sal" v-if="j.salary_min || j.salary_max">
-              {{ salaryText(j) }}
-            </span>
-          </div>
-          <p class="meta" v-if="j.location || j.majors">
-            <span v-if="j.location">📍 {{ j.location }}</span>
-            <span v-if="j.majors" class="mj"> · 专业:{{ j.majors }}</span>
-          </p>
-          <div class="card-foot">
-            <span class="dim-count" v-if="j.dimensions">
-              {{ j.dimensions.length }} 个考察维度
-            </span>
-            <span class="dim-count warn" v-else>岗位分析中…</span>
-            <router-link
-              class="go"
-              :to="`/apply/${j.id}`"
-              :class="{ disabled: !j.dimensions }"
-              @click.prevent="go(j)"
-            >开始面试 →</router-link>
-          </div>
-        </article>
-      </div>
-    </main>
+    <p v-if="state.loading" class="tip">加载岗位中…</p>
+    <p v-else-if="state.error" class="tip err">{{ state.error }}</p>
+    <div v-else-if="!state.jobs.length" class="tip">
+      没有符合条件的岗位,试试<router-link to="/" @click.prevent="resetFilters">清除筛选</router-link>
+    </div>
+    <div v-else class="grid">
+      <article v-for="j in state.jobs" :key="j.id" class="card">
+        <div class="card-head">
+          <h2 class="title">
+            {{ j.title }}
+            <span v-if="j.is_official" class="badge">官方</span>
+          </h2>
+          <span class="company">{{ j.company || '面评家官方岗位' }}</span>
+        </div>
+        <p class="jd">{{ (j.jd_text || '').slice(0, 90) }}…</p>
+        <div class="tags">
+          <span class="chip cat" v-if="j.category">{{ j.category }}</span>
+          <span class="chip rec" v-if="j.recruit_type">{{ j.recruit_type }}</span>
+          <span class="chip edu" v-if="j.education">{{ j.education }}</span>
+          <span class="chip sal" v-if="j.salary_min || j.salary_max">
+            {{ salaryText(j) }}
+          </span>
+        </div>
+        <p class="meta" v-if="j.location || j.majors">
+          <span v-if="j.location">📍 {{ j.location }}</span>
+          <span v-if="j.majors" class="mj"> · 专业:{{ j.majors }}</span>
+        </p>
+        <div class="card-foot">
+          <span class="dim-count" v-if="j.dimensions">
+            {{ j.dimensions.length }} 个考察维度
+          </span>
+          <span class="dim-count warn" v-else>岗位分析中…</span>
+          <router-link
+            class="go"
+            :to="`/apply/${j.id}`"
+            :class="{ disabled: !j.dimensions }"
+            @click.prevent="go(j)"
+          >开始面试 →</router-link>
+        </div>
+      </article>
+    </div>
   </div>
 </template>
 
 <script>
-import { computed, onMounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { jobs } from '../api'
 
 export default {
   name: 'JobHallView',
   setup() {
+    const route = useRoute()
     const router = useRouter()
     const state = reactive({ jobs: [], loading: true, error: '' })
-    const facets = reactive({ categories: [], educations: [], recruit_types: [] })
+    const facets = reactive({ educations: [], recruit_types: [] })
+    // q / category 来自 URL query(外壳顶栏搜索、侧栏类别筛选写入)
     const filters = reactive({
-      q: '',
-      category: '',
+      q: String(route.query.q || ''),
+      category: String(route.query.category || ''),
       recruit_type: '',
       education: '',
       salary_min: '',
@@ -150,6 +120,17 @@ export default {
 
     const hasFilter = computed(() =>
       Object.values(filters).some((v) => v !== '' && v != null)
+    )
+
+    // 外壳改 query(搜索/类别点击/清除)时同步并重查
+    watch(
+      () => [String(route.query.q || ''), String(route.query.category || '')],
+      ([q, c]) => {
+        if (q === filters.q && c === filters.category) return
+        filters.q = q
+        filters.category = c
+        load()
+      }
     )
 
     let timer = null
@@ -180,13 +161,16 @@ export default {
     }
 
     function resetFilters() {
-      filters.q = ''
-      filters.category = ''
       filters.recruit_type = ''
       filters.education = ''
       filters.salary_min = ''
       filters.major = ''
-      load()
+      if (route.query.q || route.query.category) {
+        // query 清掉后 watch 会触发重查,避免双查
+        router.replace({ path: '/', query: {} })
+      } else {
+        load()
+      }
     }
 
     function go(j) {
@@ -197,7 +181,6 @@ export default {
     onMounted(async () => {
       try {
         const f = await jobs.facets()
-        facets.categories = f.categories || []
         facets.educations = f.educations || []
         facets.recruit_types = f.recruit_types || []
       } catch (e) {
@@ -206,109 +189,44 @@ export default {
       load()
     })
 
-    return { state, facets, filters, hasFilter, load, debouncedLoad, resetFilters, go, salaryText }
+    return {
+      state,
+      facets,
+      filters,
+      hasFilter,
+      load,
+      debouncedLoad,
+      resetFilters,
+      go,
+      salaryText,
+    }
   },
 }
 </script>
 
 <style scoped>
-.hall {
-  min-height: 100vh;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 0 20px 40px;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 0;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-dot {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
-  box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-}
-
-.brand-name {
-  font-weight: 700;
-  font-size: 18px;
-  color: #1a3a63;
-}
-
-.brand-sub {
-  font-size: 11px;
-  color: #8a97a8;
-}
-
-.nav {
-  display: flex;
-  gap: 10px;
-}
-
-.nav-link {
-  font-size: 13px;
-  color: #1a73e8;
-  text-decoration: none;
-  border: 1px solid #1a73e8;
-  padding: 6px 14px;
-  border-radius: 999px;
-}
-
-.nav-link.ghost {
-  color: #5f6b7a;
-  border-color: #dde3ec;
-}
-
-.nav-link:hover {
-  background: #e8f1fd;
-}
-
 .hero {
-  text-align: center;
-  padding: 30px 16px 22px;
+  padding: 6px 2px 14px;
 }
 
 .hero h1 {
-  font-size: clamp(21px, 4.6vw, 28px);
+  font-size: clamp(19px, 3.4vw, 24px);
   color: #1a3a63;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .hero p {
-  font-size: 14px;
+  font-size: 13px;
   color: #6b7a8d;
 }
 
-/* 筛选栏 */
+/* 筛选条 */
 .filters {
   background: #fff;
   border: 1px solid #e4e9f0;
   border-radius: 14px;
-  padding: 14px 16px;
-  margin-bottom: 18px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
   box-shadow: 0 3px 12px rgba(30, 60, 110, 0.05);
 }
 
@@ -319,35 +237,17 @@ export default {
   align-items: flex-end;
 }
 
-.filters-row + .filters-row {
-  margin-top: 10px;
-}
-
-.search {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 14px;
-  border: 1px solid #dde3ec;
-  border-radius: 10px;
-  color: #2c3e50;
-}
-
-.search:focus {
-  outline: none;
-  border-color: #1a73e8;
-}
-
 .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1;
-  min-width: 120px;
+  min-width: 110px;
 }
 
 .field.grow {
   flex: 2;
-  min-width: 160px;
+  min-width: 150px;
 }
 
 .field label {
@@ -404,7 +304,7 @@ button.reset:hover {
 /* 卡片 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -537,28 +437,7 @@ button.reset:hover {
   color: #1a73e8;
 }
 
-@media (max-width: 640px) {
-  .hall {
-    padding: 0 12px 32px;
-  }
-
-  .topbar {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .hero {
-    padding: 20px 2px 16px;
-  }
-
-  .hero h1 {
-    font-size: 22px;
-  }
-
-  .hero p {
-    font-size: 12.5px;
-  }
-
+@media (max-width: 860px) {
   .field,
   .field.grow {
     min-width: 46%;

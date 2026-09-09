@@ -1,9 +1,6 @@
 <template>
   <div class="match-page">
-    <header class="topbar">
-      <router-link class="back" to="/">← 返回岗位大厅</router-link>
-      <h1 class="page-title">简历评审 · 人岗匹配分析</h1>
-    </header>
+    <h1 class="page-title">简历评审 · 人岗匹配分析</h1>
 
     <!-- 简历来源:本会话已上传 或 现场上传 -->
     <section class="panel">
@@ -249,30 +246,13 @@ export default {
 
 <style scoped>
 .match-page {
-  min-height: 100vh;
   max-width: 860px;
-  margin: 0 auto;
-  padding: 20px 20px 50px;
-}
-
-.topbar {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.back {
-  font-size: 13px;
-  color: #1a73e8;
-  text-decoration: none;
 }
 
 .page-title {
   font-size: 17px;
   color: #1a3a63;
+  margin-bottom: 16px;
 }
 
 .panel {
@@ -487,10 +467,6 @@ button.primary:disabled {
 }
 
 @media (max-width: 640px) {
-  .match-page {
-    padding: 14px 12px 40px;
-  }
-
   .hl-gap {
     grid-template-columns: 1fr;
   }

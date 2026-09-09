@@ -1,10 +1,6 @@
 <template>
   <div class="review">
-    <header class="topbar">
-      <router-link class="back" to="/">← 返回岗位大厅</router-link>
-      <span class="title">面评家 · 岗位审核台</span>
-      <span class="ph"></span>
-    </header>
+    <h1 class="page-title">官方审核 · 岗位审核台</h1>
 
     <!-- 口令门 -->
     <div v-if="!state.authed" class="gate panel">
@@ -172,30 +168,12 @@ export default {
 <style scoped>
 .review {
   max-width: 760px;
-  margin: 0 auto;
-  padding: 20px;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.back {
-  font-size: 13px;
-  color: #1a73e8;
-  text-decoration: none;
-}
-
-.title {
-  font-weight: 700;
+.page-title {
+  font-size: 17px;
   color: #1a3a63;
-}
-
-.ph {
-  width: 90px;
+  margin-bottom: 16px;
 }
 
 .panel {

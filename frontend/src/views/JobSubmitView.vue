@@ -1,9 +1,5 @@
 <template>
   <div class="submit">
-    <header class="topbar">
-      <router-link class="back" to="/">← 返回岗位大厅</router-link>
-    </header>
-
     <div class="panel">
       <h1>发布招聘信息</h1>
       <p class="sub">
@@ -76,18 +72,6 @@ export default {
 <style scoped>
 .submit {
   max-width: 640px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.topbar {
-  margin-bottom: 14px;
-}
-
-.back {
-  font-size: 13px;
-  color: #1a73e8;
-  text-decoration: none;
 }
 
 .panel {

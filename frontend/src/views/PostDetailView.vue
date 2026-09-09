@@ -1,20 +1,5 @@
 <template>
   <div class="detail">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-dot">🎙</span>
-        <div class="brand-text">
-          <span class="brand-name">面评家</span>
-          <span class="brand-sub">AI 模拟面试官 · 个人竞争力报告</span>
-        </div>
-      </div>
-      <nav class="nav">
-        <router-link class="nav-link ghost" to="/">岗位大厅</router-link>
-        <router-link class="nav-link ghost" to="/match">简历评审</router-link>
-        <router-link class="nav-link" to="/community">交流区</router-link>
-      </nav>
-    </header>
-
     <div class="crumbs">
       <router-link to="/community">← 返回交流区</router-link>
     </div>
@@ -135,77 +120,7 @@ export default {
 
 <style scoped>
 .detail {
-  min-height: 100vh;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 0 20px 40px;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 0;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-dot {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
-  box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-}
-
-.brand-name {
-  font-weight: 700;
-  font-size: 18px;
-  color: #1a3a63;
-}
-
-.brand-sub {
-  font-size: 11px;
-  color: #8a97a8;
-}
-
-.nav {
-  display: flex;
-  gap: 10px;
-}
-
-.nav-link {
-  font-size: 13px;
-  color: #1a73e8;
-  text-decoration: none;
-  border: 1px solid #1a73e8;
-  padding: 6px 14px;
-  border-radius: 999px;
-}
-
-.nav-link.ghost {
-  color: #5f6b7a;
-  border-color: #dde3ec;
-}
-
-.nav-link:hover {
-  background: #e8f1fd;
+  min-height: 60vh;
 }
 
 .crumbs {
@@ -401,15 +316,6 @@ export default {
 }
 
 @media (max-width: 640px) {
-  .detail {
-    padding: 0 12px 32px;
-  }
-
-  .nav {
-    width: 100%;
-    justify-content: center;
-  }
-
   .ptitle {
     font-size: 17px;
   }

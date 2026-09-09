@@ -1,38 +1,41 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
-  // 首页 = 岗位大厅(应聘者入口)
-  { path: '/', name: 'hall', component: () => import('../views/JobHallView.vue') },
-  // 简历分析页:上传 → 选风格 → 直接开始面试
+  // 应聘者功能页共用外壳(header 品牌+搜索 / aside 导航+类别筛选 / main 子路由内容)
+  {
+    path: '/',
+    component: () => import('../views/AppShell.vue'),
+    children: [
+      // 首页 = 岗位大厅(应聘者入口)
+      { path: '', name: 'hall', component: () => import('../views/JobHallView.vue') },
+      // 简历评审:人岗匹配分析评审单
+      { path: 'match', name: 'match', component: () => import('../views/MatchReportView.vue') },
+      // 交流区(牛客式板块:发帖 / 评论 / 点赞,匿名)
+      { path: 'community', name: 'community', component: () => import('../views/CommunityView.vue') },
+      {
+        path: 'community/:id',
+        name: 'community-post',
+        component: () => import('../views/PostDetailView.vue'),
+      },
+      // 岗位自助提交(任何人可提交,待官方审核)
+      { path: 'jobs/submit', name: 'submit', component: () => import('../views/JobSubmitView.vue') },
+      // 官方审核页(口令门控)
+      { path: 'review', name: 'review', component: () => import('../views/ReviewView.vue') },
+    ],
+  },
+  // 简历分析页:上传 → 选风格 → 直接开始面试(全屏流程页,不带外壳)
   {
     path: '/apply/:jobId',
     name: 'apply',
     component: () => import('../views/ResumeAnalysisView.vue'),
   },
-  // 简历评审独立页:人岗匹配分析评审单
-  {
-    path: '/match',
-    name: 'match',
-    component: () => import('../views/MatchReportView.vue'),
-  },
-  // 应聘者免登录面试页(数字人 + 语音):/interview/{id}
+  // 应聘者免登录面试页(数字人 + 语音):/interview/{id}(全屏流程页)
   {
     path: '/interview/:id',
     name: 'interview',
     component: () => import('../candidate/InterviewView.vue'),
   },
-  // 岗位自助提交(任何人可提交,待官方审核)
-  { path: '/jobs/submit', name: 'submit', component: () => import('../views/JobSubmitView.vue') },
-  // 交流区(牛客式板块:发帖 / 评论 / 点赞,匿名)
-  { path: '/community', name: 'community', component: () => import('../views/CommunityView.vue') },
-  {
-    path: '/community/:id',
-    name: 'community-post',
-    component: () => import('../views/PostDetailView.vue'),
-  },
-  // 官方审核页(口令门控)
-  { path: '/review', name: 'review', component: () => import('../views/ReviewView.vue') },
-  // 个人竞争力报告
+  // 个人竞争力报告(全屏流程页)
   {
     path: '/admin/reports/:id',
     name: 'report',
