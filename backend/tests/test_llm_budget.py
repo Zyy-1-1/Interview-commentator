@@ -34,3 +34,29 @@ def test_authentication_error_is_not_retried(monkeypatch):
     with pytest.raises(RuntimeError):
         llm.chat_json("system", "synthetic input")
     assert calls == [1]
+
+
+def test_call_can_use_a_separate_timeout_budget(monkeypatch):
+    clock = [0.0]
+    timeouts = []
+
+    def create(**kwargs):
+        timeouts.append(kwargs["timeout"])
+        clock[0] += kwargs["timeout"]
+        raise TimeoutError("synthetic timeout")
+
+    monkeypatch.setattr(llm.time, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(
+        llm,
+        "get_client",
+        lambda: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    )
+    with pytest.raises(RuntimeError):
+        llm.chat_json(
+            "system",
+            "synthetic input",
+            max_retries=1,
+            timeout_seconds=90,
+            total_timeout_seconds=180,
+        )
+    assert timeouts == [90, 90]

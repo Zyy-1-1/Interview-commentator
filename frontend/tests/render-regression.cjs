@@ -16,10 +16,22 @@ global.window = {
 global.location = { hash: '' }
 
 function makeNode(type, text = '') {
-  return Vue.markRaw({
+  const node = {
     type, text, props: {}, children: [], parent: null,
     addEventListener() {}, removeEventListener() {}, style: {}, focus() {}, scrollTo() {},
+    multiple: false, selected: false, selectedIndex: -1,
+  }
+  Object.defineProperty(node, 'options', {
+    get() {
+      if (type !== 'select') return []
+      const visit = (current) => current.children.flatMap((child) => [
+        ...(child.type === 'option' ? [child] : []),
+        ...visit(child),
+      ])
+      return visit(node)
+    },
   })
+  return Vue.markRaw(node)
 }
 const renderer = Vue.createRenderer({
   createElement: (type) => makeNode(type),
@@ -55,6 +67,7 @@ function mount(file, overrides) {
     useRouter: () => ({ push() {} }),
     getInterviewToken: () => 'synthetic-token',
     storeInterviewToken() {},
+    DigitalHuman: { render: () => null },
     initChart(el) {
       const chart = {
         el, disposed: false, option: null,
@@ -91,19 +104,23 @@ const report = {
 const jobs = { get: async () => ({ title: 'Synthetic job', dimensions }) }
 
 test('匹配完成后绘图，换简历后销毁旧图并绑定新容器', async (t) => {
-  const page = mount('views/ResumeAnalysisView.vue', { jobs, candidates: { match: async () => result } })
+  const page = mount('views/MatchReportView.vue', {
+    useRoute: () => ({ query: {} }), getCandidate: () => null,
+    jobs: { list: async () => [] }, candidates: { match: async () => result },
+  })
   t.after(page.unmount)
   await settle()
-  page.vm.state.cand = { id: 1, access_token: 'test' }
-  await page.vm.loadMatch()
+  page.vm.cand = { id: 1, accessToken: 'test' }
+  page.vm.jobId = 1
+  await page.vm.generate()
   await settle()
   assert.equal(page.charts.length, 1)
   assert.equal(page.charts[0].el, chartNodes(page.root)[0])
-  page.vm.reupload()
+  page.vm.clearCand()
   await settle()
   assert.equal(page.charts[0].disposed, true)
-  page.vm.state.cand = { id: 2, access_token: 'test' }
-  await page.vm.loadMatch()
+  page.vm.cand = { id: 2, accessToken: 'test' }
+  await page.vm.generate()
   await settle()
   assert.equal(page.charts.length, 2)
   assert.notEqual(page.charts[0].el, page.charts[1].el)
@@ -112,31 +129,37 @@ test('匹配完成后绘图，换简历后销毁旧图并绑定新容器', async
 
 test('匹配失败后重试可以显示图表', async (t) => {
   let calls = 0
-  const page = mount('views/ResumeAnalysisView.vue', { jobs, candidates: { match: async () => {
-    if (calls++ === 0) throw new Error('Temporary failure')
-    return result
-  } } })
+  const page = mount('views/MatchReportView.vue', {
+    useRoute: () => ({ query: {} }), getCandidate: () => null, jobs: { list: async () => [] },
+    candidates: { match: async () => {
+      if (calls++ === 0) throw new Error('Temporary failure')
+      return result
+    } },
+  })
   t.after(page.unmount)
   await settle()
-  page.vm.state.cand = { id: 1, access_token: 'test' }
-  await page.vm.loadMatch()
+  page.vm.cand = { id: 1, accessToken: 'test' }
+  page.vm.jobId = 1
+  await page.vm.generate()
   assert.equal(page.vm.match, null)
-  await page.vm.loadMatch()
+  await page.vm.generate()
   await settle()
-  assert.equal(page.vm.state.error, '')
+  assert.equal(page.vm.error, '')
   assert.equal(page.charts.length, 1)
 })
 
 test('换简历后忽略旧请求迟到的结果', async (t) => {
   let complete
-  const page = mount('views/ResumeAnalysisView.vue', { jobs, candidates: {
-    match: () => new Promise((resolve) => { complete = resolve }),
-  } })
+  const page = mount('views/MatchReportView.vue', {
+    useRoute: () => ({ query: {} }), getCandidate: () => null, jobs: { list: async () => [] },
+    candidates: { match: () => new Promise((resolve) => { complete = resolve }) },
+  })
   t.after(page.unmount)
   await settle()
-  page.vm.state.cand = { id: 1, access_token: 'test' }
-  const pending = page.vm.loadMatch()
-  page.vm.reupload()
+  page.vm.cand = { id: 1, accessToken: 'test' }
+  page.vm.jobId = 1
+  const pending = page.vm.generate()
+  page.vm.clearCand()
   complete(result)
   await pending
   await settle()
@@ -144,14 +167,13 @@ test('换简历后忽略旧请求迟到的结果', async (t) => {
   assert.equal(page.charts.length, 0)
 })
 
-test('创建面试失败可见，保留匹配结果并在重试成功后跳转', async (t) => {
+test('创建面试失败可见，保留简历与风格并在重试成功后跳转', async (t) => {
   let attempts = 0
   let complete
   const destinations = []
   const tokens = []
   const page = mount('views/ResumeAnalysisView.vue', {
     jobs,
-    candidates: { match: async () => result },
     interviews: { create: async (...args) => {
       assert.deepEqual(args, [1, 1, 'pressure', 'synthetic-create-token'])
       if (++attempts === 1) throw new Error('Synthetic creation failure')
@@ -164,13 +186,12 @@ test('创建面试失败可见，保留匹配结果并在重试成功后跳转',
   await settle()
   page.vm.state.cand = { id: 1, access_token: 'synthetic-create-token' }
   page.vm.style = 'pressure'
-  await page.vm.loadMatch()
   await page.vm.start()
   await settle()
   assert.match(visibleText(page.root), /Synthetic creation failure/)
   assert.equal(page.vm.state.starting, false)
-  assert.equal(page.vm.match.overall, 70)
-  assert.equal(page.charts.length, 1)
+  assert.equal(page.vm.state.cand.id, 1)
+  assert.equal(page.vm.style, 'pressure')
   assert.deepEqual(destinations, [])
 
   const pending = page.vm.start()

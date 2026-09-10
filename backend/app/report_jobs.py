@@ -17,7 +17,8 @@ ACTIVE_STATUSES = ("pending", "running")
 
 
 def _cutoff() -> datetime:
-    return datetime.now() - timedelta(seconds=max(120, settings.llm_total_timeout_seconds + 30))
+    # 留出模型总调用预算之外的调度与结果持久化时间，避免长调用被过早标记为超时。
+    return datetime.now() - timedelta(seconds=max(210, settings.report_llm_total_timeout_seconds + 30))
 
 
 def report_payload(interview: Interview) -> dict:

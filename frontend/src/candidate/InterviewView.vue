@@ -11,10 +11,10 @@
       <div class="top-right">
         <div class="progress-chips" v-if="hasProgress">
           <span class="chip phase" :class="phaseKey || 'created'">{{ phaseText }}</span>
-          <span class="chip" v-if="state.progress.current_dimension">
+          <span class="chip dimension" v-if="state.progress.current_dimension">
             {{ state.progress.current_dimension }}
           </span>
-          <span class="chip">{{ asked }}/{{ total }}</span>
+          <span class="chip round">{{ asked }}/{{ total }} 轮</span>
         </div>
         <button
           class="voice-btn"
@@ -34,7 +34,7 @@
     <main class="chat picker-chat" v-if="showPicker">
       <div class="picker panel">
         <h1>选择你的 AI 面试官</h1>
-        <p class="sub">选定后面试立即开始,面试官会用语音向你提问</p>
+        <p class="sub">选定后即可开始模拟面试；如设备支持，可在右上角开启语音播报。</p>
         <div class="styles">
           <label v-for="s in STYLES" :key="s.key" class="style" :class="{ on: chosenStyle === s.key }">
             <input type="radio" :value="s.key" v-model="chosenStyle" />
@@ -46,7 +46,10 @@
         <button class="primary" :disabled="starting" @click="pickAndStart">
           {{ starting ? '面试官入场中…' : `开始面试(与${styleName})` }}
         </button>
-        <p v-if="state.error" class="err">{{ state.error }}</p>
+        <div v-if="state.error" class="picker-error" role="alert">
+          <p class="err">{{ state.error }}</p>
+          <router-link class="return-link" to="/">返回岗位大厅</router-link>
+        </div>
       </div>
     </main>
 
@@ -56,12 +59,26 @@
         正在连接面试官…
       </div>
       <div v-else-if="state.error && !state.messages.length" class="center error">
-        {{ state.error }}
+        <b>无法继续这场面试</b>
+        <p>{{ state.error }}</p>
+        <div class="error-actions">
+          <button v-if="accessToken" class="retry" @click="retryBoot">重新连接</button>
+          <router-link class="return-link" to="/">返回岗位大厅</router-link>
+        </div>
       </div>
       <template v-else>
         <div v-for="(m, i) in state.messages" :key="i" class="msg" :class="m.role">
-          <div class="avatar" v-if="m.role === 'agent'">🎙</div>
-          <div class="bubble">{{ m.text }}</div>
+          <DigitalHuman
+            v-if="m.role === 'agent'"
+            class="message-human"
+            :style="chosenStyle"
+            small
+          />
+          <div v-else class="avatar" aria-label="候选人">我</div>
+          <div class="bubble-wrap">
+            <span v-if="m.dimension" class="message-dimension">考察维度 · {{ m.dimension }}</span>
+            <div class="bubble">{{ m.text }}</div>
+          </div>
         </div>
 
         <!-- 发送失败:可重试的错误卡片 -->
@@ -76,7 +93,7 @@
         </div>
 
         <div v-if="state.sending" class="msg agent">
-          <div class="avatar">🎙</div>
+          <DigitalHuman class="message-human" :style="chosenStyle" small />
           <div class="bubble typing">
             <span class="dots"><i></i><i></i><i></i></span>
             面试官正在思考
@@ -88,7 +105,7 @@
           <div class="done-icon">✓</div>
           <div class="done-text">
             <b>面试已完成</b>
-            感谢你的参与！接下来将评估本次回答，可在报告页查看生成进度。
+            感谢你的参与。系统会基于本次回答生成评估，报告页会显示实际生成状态。
           </div>
           <router-link class="done-btn" :to="`/admin/reports/${interviewId}`">
             查看报告进度与结果 →
@@ -102,11 +119,11 @@
       </template>
     </main>
 
-    <footer class="inputbar" v-if="!showPicker">
+    <footer class="inputbar" v-if="!showPicker && !(state.error && !state.messages.length)">
       <textarea
         ref="inputRef"
         v-model="state.input"
-        :disabled="state.finished || state.sending || state.loading"
+        :disabled="state.finished || state.sending || state.loading || !!state.error"
         :placeholder="inputPlaceholder"
         rows="1"
         @input="autoGrow"
@@ -140,9 +157,9 @@ const PHASE_TEXT = {
 }
 
 const STYLES = [
-  { key: 'pro', name: '陈工 · 严谨技术官', desc: '深挖原理与细节,每个回答至少追一层', voice: { pitch: 0.9, rate: 1.0 } },
-  { key: 'friendly', name: '林姐 · 亲和 HR', desc: '鼓励式提问,帮你放松表达', voice: { pitch: 1.2, rate: 1.05 } },
-  { key: 'pressure', name: '高老师 · 压力面', desc: '对简历亮点保持怀疑,追问验证', voice: { pitch: 0.85, rate: 1.1 } },
+  { key: 'pro', name: '陈工 · 严谨技术官', desc: '更关注原理、边界与可验证细节', voice: { pitch: 0.9, rate: 1.0 } },
+  { key: 'friendly', name: '林姐 · 亲和 HR', desc: '鼓励式提问，帮助你完整表达', voice: { pitch: 1.2, rate: 1.05 } },
+  { key: 'pressure', name: '高老师 · 压力面', desc: '从质疑角度追问关键细节', voice: { pitch: 0.85, rate: 1.1 } },
 ]
 
 const VOICE_BY_STYLE = Object.fromEntries(STYLES.map((s) => [s.key, s.voice]))
@@ -207,8 +224,8 @@ export default {
     const inputPlaceholder = computed(() => {
       if (state.finished) return '面试已结束'
       if (state.sending) return '面试官正在出题…'
-      if (state.failed) return '上一条回答发送失败,点击「重试」或重新输入'
-      return '输入你的回答,Enter 发送,Shift+Enter 换行'
+      if (state.failed) return '上一条回答发送失败，点击「重试」或重新输入'
+      return '输入你的回答，Enter 发送，Shift+Enter 换行'
     })
 
     function say(text) {
@@ -217,8 +234,13 @@ export default {
 
     function scrollBottom() {
       nextTick(() => {
-        if (chatBox.value)
-          chatBox.value.scrollTo({ top: chatBox.value.scrollHeight, behavior: 'smooth' })
+        if (chatBox.value) {
+          const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          chatBox.value.scrollTo({
+            top: chatBox.value.scrollHeight,
+            behavior: reduceMotion ? 'auto' : 'smooth',
+          })
+        }
       })
     }
 
@@ -246,7 +268,11 @@ export default {
         chosenStyle.value = full.style || 'pro'
         jobId.value = full.job_id || 0
         const msgs = await interviews.messages(interviewId, accessToken)
-        state.messages = msgs.map((m) => ({ role: m.role, text: m.text }))
+        state.messages = msgs.map((m) => ({
+          role: m.role,
+          text: m.text,
+          dimension: m.dimension,
+        }))
         if (s.status === 'finished') state.finished = true
         if (msgs.length === 0) {
           if (full.style) {
@@ -290,7 +316,11 @@ export default {
           accessToken
         )
         state.progress = turn.progress
-        state.messages.push({ role: 'agent', text: turn.agent_question })
+        state.messages.push({
+          role: 'agent',
+          text: turn.agent_question,
+          dimension: turn.dimension || turn.progress?.current_dimension,
+        })
         if (turn.finished) state.finished = true
         showPicker.value = false
         say(turn.agent_question)
@@ -311,7 +341,11 @@ export default {
       try {
         const turn = await interviews.message(interviewId, reply, requestId, accessToken)
         state.progress = turn.progress
-        state.messages.push({ role: 'agent', text: turn.agent_question })
+        state.messages.push({
+          role: 'agent',
+          text: turn.agent_question,
+          dimension: turn.dimension || turn.progress?.current_dimension,
+        })
         say(turn.agent_question)
         if (turn.finished) state.finished = true
       } catch (e) {
@@ -339,11 +373,19 @@ export default {
       await deliver(failed.reply, failed.requestId)
     }
 
+    async function retryBoot() {
+      if (!accessToken || state.loading) return
+      state.error = ''
+      state.loading = true
+      await boot()
+    }
+
     onMounted(boot)
 
     return {
       interviewId,
       jobId,
+      accessToken,
       chatBox,
       inputRef,
       state,
@@ -366,6 +408,7 @@ export default {
       pickAndStart,
       send,
       retry,
+      retryBoot,
     }
   },
 }
@@ -392,7 +435,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 16px 10px;
+  padding: 8px 16px 9px;
   border-bottom: 1px solid #eef1f5;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(10px);
@@ -468,8 +511,8 @@ export default {
   border: 1px solid #dde3ec;
   background: #fff;
   border-radius: 999px;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   font-size: 15px;
   cursor: pointer;
   flex-shrink: 0;
@@ -490,7 +533,7 @@ export default {
 
 .progressbar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   border-radius: 0 999px 999px 0;
   transition: width 0.5s ease;
 }
@@ -583,12 +626,13 @@ export default {
   width: 100%;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   color: #fff;
+  min-height: 44px;
   padding: 12px;
   font-size: 15px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.3);
+  box-shadow: none;
 }
 
 .picker .primary:disabled {
@@ -608,6 +652,40 @@ export default {
 
 .error {
   color: #e5533d;
+}
+
+.center.error {
+  max-width: 360px;
+  flex-direction: column;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.center.error p {
+  margin: 0;
+}
+
+.error-actions,
+.picker-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.picker-error {
+  margin-top: 14px;
+}
+
+.return-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #1768cf;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
 }
 
 /* ---------- 消息 ---------- */
@@ -643,7 +721,7 @@ export default {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   color: #fff;
   font-size: 14px;
   display: flex;
@@ -651,6 +729,27 @@ export default {
   justify-content: center;
   flex-shrink: 0;
   box-shadow: 0 3px 8px rgba(26, 115, 232, 0.3);
+}
+
+.message-human {
+  flex-shrink: 0;
+}
+
+.bubble-wrap {
+  min-width: 0;
+}
+
+.message-dimension {
+  display: block;
+  margin: 0 0 4px 3px;
+  color: #6b7a8d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.msg.candidate .message-dimension {
+  margin-right: 3px;
+  text-align: right;
 }
 
 .bubble {
@@ -670,7 +769,7 @@ export default {
 }
 
 .msg.candidate .bubble {
-  background: linear-gradient(135deg, #1a73e8, #3d8bf0);
+  background: var(--color-primary);
   color: #fff;
   border-bottom-right-radius: 4px;
   box-shadow: 0 3px 10px rgba(26, 115, 232, 0.25);
@@ -754,6 +853,7 @@ export default {
   background: #e5533d;
   color: #fff;
   font-size: 12px;
+  min-height: 44px;
   padding: 4px 14px;
   cursor: pointer;
 }
@@ -801,14 +901,16 @@ export default {
 }
 
 .done-btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   text-decoration: none;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   color: #fff;
   font-size: 14px;
   padding: 10px 22px;
   border-radius: 999px;
-  box-shadow: 0 5px 14px rgba(26, 115, 232, 0.32);
+  box-shadow: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -845,7 +947,7 @@ export default {
   border: 1px solid #dde3ec;
   border-radius: 12px;
   padding: 12px 14px;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   outline: none;
   font-family: inherit;
@@ -865,7 +967,7 @@ export default {
   flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   color: #fff;
   cursor: pointer;
   display: flex;
@@ -903,11 +1005,27 @@ export default {
   }
 
   .topbar {
-    padding: 8px 10px;
+    gap: 6px;
+    padding: 6px 10px 7px;
   }
 
   .progress-chips {
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .progress-chips .dimension {
     display: none;
+  }
+
+  .chip {
+    padding: 4px 7px;
+    font-size: 11px;
+  }
+
+  .voice-btn {
+    width: 44px;
+    height: 44px;
   }
 
   .chat {
@@ -924,6 +1042,38 @@ export default {
 
   .inputbar {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 400px) {
+  .interviewer {
+    gap: 6px;
+  }
+
+  .who span {
+    display: none;
+  }
+
+  .who b {
+    font-size: 13px;
+  }
+
+  .top-right {
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker,
+  .msg,
+  .done,
+  .progressbar-fill,
+  .inputbar textarea,
+  .send,
+  .done-btn,
+  .dots i {
+    animation: none;
+    transition: none;
   }
 }
 </style>

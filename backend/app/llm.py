@@ -88,10 +88,14 @@ def chat_json(
     user: str,
     temperature: float = 0.2,
     max_retries: int = 2,
+    timeout_seconds: float | None = None,
+    total_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """结构化调用共用重试预算，剩余时间收紧每次网络超时。"""
     client = get_client()
-    deadline = time.perf_counter() + settings.llm_total_timeout_seconds
+    request_timeout = timeout_seconds or settings.llm_timeout_seconds
+    total_timeout = total_timeout_seconds or settings.llm_total_timeout_seconds
+    deadline = time.perf_counter() + total_timeout
     last_err: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         started = time.perf_counter()
@@ -100,7 +104,7 @@ def chat_json(
             break
         try:
             resp = client.chat.completions.create(
-                timeout=min(settings.llm_timeout_seconds, remaining),
+                timeout=min(request_timeout, remaining),
                 model=settings.dashscope_model,
                 messages=[
                     {"role": "system", "content": system},

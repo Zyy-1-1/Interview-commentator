@@ -4,10 +4,10 @@
     <header class="topbar">
       <div class="topbar-inner">
         <router-link class="brand" to="/">
-          <span class="brand-dot">🎙</span>
+          <span class="brand-dot" aria-hidden="true">⌁</span>
           <div class="brand-text">
             <span class="brand-name">面评家</span>
-            <span class="brand-sub">AI 模拟面试官 · 个人竞争力报告</span>
+            <span class="brand-sub">可信的 AI 职业陪练</span>
           </div>
         </router-link>
         <input
@@ -22,29 +22,21 @@
     </header>
 
     <div class="layout">
-      <!-- 侧栏:功能导航(+ 大厅页时的岗位类别快捷筛选) -->
+      <!-- 侧栏:候选人主导航与次级服务入口 -->
       <aside class="side">
-        <nav class="menu">
-          <router-link class="menu-item" to="/" exact-active-class="cur">岗位大厅</router-link>
-          <router-link class="menu-item" to="/match" active-class="cur">简历评审</router-link>
-          <router-link class="menu-item" to="/community" active-class="cur">交流区</router-link>
-          <router-link class="menu-item" to="/jobs/submit" active-class="cur">发布招聘信息</router-link>
-          <router-link class="menu-item" to="/review" active-class="cur">官方审核</router-link>
-        </nav>
-        <template v-if="isHall">
-          <div class="side-sep"></div>
-          <div class="side-block">
-            <h3 class="side-title">岗位类别</h3>
-            <router-link class="cat" :class="{ on: !activeCat }" :to="catLink('')">全部</router-link>
-            <router-link
-              v-for="c in categories"
-              :key="c"
-              class="cat"
-              :class="{ on: activeCat === c }"
-              :to="catLink(c)"
-            >{{ c }}</router-link>
+        <nav class="menu" aria-label="功能导航">
+          <div class="menu-group menu-primary">
+            <span class="menu-label">候选人空间</span>
+            <router-link class="menu-item" to="/" exact-active-class="cur">岗位大厅</router-link>
+            <router-link class="menu-item" to="/match" active-class="cur">简历评审</router-link>
+            <router-link class="menu-item" to="/community" active-class="cur">交流区</router-link>
           </div>
-        </template>
+          <div class="menu-group menu-secondary">
+            <span class="menu-label">服务入口</span>
+            <router-link class="menu-item" to="/jobs/submit" active-class="cur">发布招聘信息</router-link>
+            <router-link class="menu-item" to="/review" active-class="cur">官方审核</router-link>
+          </div>
+        </nav>
       </aside>
 
       <!-- 主区:功能页在此渲染 -->
@@ -56,9 +48,8 @@
 </template>
 
 <script>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { jobs } from '../api'
 
 export default {
   name: 'AppShell',
@@ -67,16 +58,7 @@ export default {
     const router = useRouter()
 
     const isHall = computed(() => route.name === 'hall')
-    const categories = ref([])
     const q = ref(String(route.query.q || ''))
-    const activeCat = computed(() => String(route.query.category || ''))
-
-    function catLink(c) {
-      const query = {}
-      if (c) query.category = c
-      if (q.value) query.q = q.value
-      return { path: '/', query }
-    }
 
     // 搜索词经 URL query 传给大厅子路由(debounce 避免每键一次路由重写)
     let timer = null
@@ -97,16 +79,7 @@ export default {
       }
     )
 
-    onMounted(async () => {
-      try {
-        const f = await jobs.facets()
-        categories.value = f.categories || []
-      } catch {
-        /* 类别筛选拉取失败不阻断页面 */
-      }
-    })
-
-    return { isHall, categories, q, activeCat, catLink, debouncedSyncQ }
+    return { isHall, q, debouncedSyncQ }
   },
 }
 </script>
@@ -114,7 +87,7 @@ export default {
 <style scoped>
 .shell {
   min-height: 100vh;
-  background: #f5f7fb;
+  background: transparent;
 }
 
 /* ---------------- header ---------------- */
@@ -122,82 +95,92 @@ export default {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: #fff;
-  border-bottom: 1px solid #e4e9f0;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .topbar-inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 12px 20px;
+  width: 100%;
+  padding: var(--space-3) var(--space-5);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
+  min-height: 44px;
+  min-width: 0;
+  flex: 1 1 auto;
   text-decoration: none;
 }
 
 .brand-dot {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  flex: 0 0 36px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
-  box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
   line-height: 1.25;
+  min-width: 0;
 }
 
 .brand-name {
   font-weight: 700;
   font-size: 18px;
-  color: #1a3a63;
+  color: var(--color-ink);
 }
 
 .brand-sub {
   font-size: 11px;
-  color: #8a97a8;
+  color: var(--color-subtle);
 }
 
 .search {
   flex: 0 1 360px;
-  min-width: 200px;
+  min-width: 0;
+  width: min(360px, 100%);
+  min-height: 44px;
   padding: 9px 14px;
   font-size: 13.5px;
-  border: 1px solid #dde3ec;
-  border-radius: 999px;
-  color: #2c3e50;
-  background: #f7f9fc;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-text);
+  background: var(--color-surface-soft);
 }
 
 .search:focus {
   outline: none;
-  border-color: #1a73e8;
-  background: #fff;
+  border-color: var(--color-primary);
+  background: var(--color-surface);
 }
 
 /* ---------------- 三栏骨架 ---------------- */
 .layout {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 18px 20px 44px;
+  width: 100%;
+  padding: 18px var(--space-5) 44px;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 212px minmax(0, 1fr);
+  gap: var(--space-5);
   align-items: start;
 }
 
@@ -205,83 +188,58 @@ export default {
 .side {
   position: sticky;
   top: 74px;
-  background: #fff;
-  border: 1px solid #e4e9f0;
-  border-radius: 14px;
-  padding: 12px;
-  box-shadow: 0 3px 12px rgba(30, 60, 110, 0.05);
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-3);
 }
 
 .menu {
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.menu-group {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+
+.menu-label {
+  padding: 2px 12px 5px;
+  color: var(--color-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .menu-item {
   display: block;
-  padding: 9px 12px;
-  border-radius: 9px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
-  color: #445468;
+  color: var(--color-text);
   text-decoration: none;
 }
 
 .menu-item:hover {
-  background: #eef4fd;
-  color: #1a73e8;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
 }
 
 .menu-item.cur {
-  background: linear-gradient(135deg, #1a73e8, #4f9cf9);
+  background: var(--color-primary);
   color: #fff;
-  font-weight: 600;
-  box-shadow: 0 3px 8px rgba(26, 115, 232, 0.3);
-}
-
-.side-sep {
-  border-top: 1px solid #eef1f5;
-  margin: 10px 0;
-}
-
-.side-title {
-  font-size: 12px;
-  color: #8a97a8;
-  font-weight: 600;
-  padding: 0 4px 6px;
-}
-
-.side-block {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.cat {
-  text-align: left;
-  border: none;
-  background: none;
-  padding: 7px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: #5f6b7a;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.cat:hover {
-  background: #eef4fd;
-  color: #1a73e8;
-}
-
-.cat.on {
-  background: #e8f1fd;
-  color: #1a73e8;
   font-weight: 600;
 }
 
@@ -302,22 +260,40 @@ export default {
   }
 
   .menu {
-    flex-direction: row;
-    overflow-x: auto;
-    gap: 8px;
-    padding-bottom: 2px;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .menu-group {
+    width: 100%;
+    flex: 0 1 auto;
   }
 
   .menu-item {
-    white-space: nowrap;
-    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 12px;
+    text-align: center;
   }
 
-  .side-block {
-    flex-direction: row;
-    flex-wrap: wrap;
-    max-height: none;
-    overflow: visible;
+  .menu-primary,
+  .menu-secondary {
+    display: grid;
+    gap: 4px;
+  }
+
+  .menu-primary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .menu-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .menu-label {
+    grid-column: 1 / -1;
   }
 
   .topbar-inner {
@@ -327,6 +303,37 @@ export default {
   .search {
     flex: 1 1 100%;
     order: 3;
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .layout {
+    padding: 12px 10px 32px;
+  }
+
+  .side {
+    padding: 10px;
+  }
+
+  .menu {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .menu-group,
+  .menu-secondary {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .menu-primary {
+    gap: 3px;
+  }
+
+  .menu-item {
+    padding-inline: 6px;
+    font-size: 13px;
   }
 }
 </style>

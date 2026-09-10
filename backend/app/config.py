@@ -39,10 +39,13 @@ class Settings(BaseSettings):
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
-    # 实测 qwen-plus 大上下文调用(人岗匹配整份简历×JD)单次可达 26s,
-    # 原 25s 单请求上限会将其卡死在重试边缘,故放宽到 45s;总预算 90s 允许一次完整重试。
-    llm_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
-    llm_total_timeout_seconds: float = Field(default=90.0, gt=0, le=120)
+    # 大上下文调用（简历解析、人岗匹配、报告生成）响应较慢；单次最多等待 60s，
+    # 总预算 120s 留出一次完整重试空间。
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=120)
+    llm_total_timeout_seconds: float = Field(default=120.0, gt=0, le=120)
+    # 报告需要综合整场面试记录，单独给予更长预算，避免影响其他交互请求。
+    report_llm_timeout_seconds: float = Field(default=90.0, gt=0, le=120)
+    report_llm_total_timeout_seconds: float = Field(default=180.0, gt=0, le=300)
 
     # 岗位审核口令(官方后台 /review 页使用)
     review_passphrase: str = ""

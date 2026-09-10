@@ -3,6 +3,7 @@ import json
 import math
 from typing import Any
 
+from ..config import settings
 from ..llm import chat_json
 from .output_validation import finite_number, text_value
 
@@ -83,7 +84,15 @@ def evaluate(
         job_title=job_title, dimensions=dimensions,
         parsed_resume=parsed_resume, messages=prepared,
     )
-    result = chat_json(SYSTEM_PROMPT, user, temperature=0.2)
+    # 报告需综合整场记录，使用独立预算；最多重试一次，避免重复消耗额度。
+    result = chat_json(
+        SYSTEM_PROMPT,
+        user,
+        temperature=0.2,
+        max_retries=1,
+        timeout_seconds=settings.report_llm_timeout_seconds,
+        total_timeout_seconds=settings.report_llm_total_timeout_seconds,
+    )
     return _normalize_report(
         result, dimensions=dimensions, messages=prepared, input_truncated=truncated,
     )

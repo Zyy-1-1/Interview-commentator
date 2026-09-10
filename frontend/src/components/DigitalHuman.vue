@@ -1,6 +1,6 @@
 <template>
-  <div class="dh" :class="[style, { speaking }]">
-    <svg viewBox="0 0 120 120" width="86" height="86" aria-hidden="true">
+  <div class="dh" :class="[style, { speaking, small }]" role="img" :aria-label="`${personaLabel}数字人形象`">
+    <svg viewBox="0 0 120 120" :width="small ? 38 : 86" :height="small ? 38 : 86" aria-hidden="true">
       <!-- 肩部/西装 -->
       <path d="M12 120 C12 92, 34 82, 60 82 C86  82, 108 92, 108 120 Z" :fill="c.suit" />
       <path d="M50 84 L60 100 L70 84 L60 90 Z" fill="#fff" />
@@ -55,16 +55,26 @@ const COLORS = {
   pressure: { suit: '#3d3d45', hair: '#22252b', accent: '#e5533d', glasses: '#22252b' },
 }
 
+const PERSONA_LABELS = {
+  pro: '严谨技术官',
+  friendly: '亲和 HR',
+  pressure: '压力面试官',
+}
+
 export default {
   name: 'DigitalHuman',
   props: {
     // pro | friendly | pressure
     style: { type: String, default: 'pro' },
     speaking: { type: Boolean, default: false },
+    small: { type: Boolean, default: false },
   },
   computed: {
     c() {
       return COLORS[this.style] || COLORS.pro
+    },
+    personaLabel() {
+      return PERSONA_LABELS[this.style] || PERSONA_LABELS.pro
     },
   },
 }
@@ -79,6 +89,12 @@ export default {
   padding: 6px;
   box-shadow: 0 4px 14px rgba(30, 60, 110, 0.14);
   animation: dhFloat 4.5s ease-in-out infinite;
+}
+
+.dh.small {
+  padding: 2px;
+  box-shadow: 0 2px 8px rgba(30, 60, 110, 0.12);
+  animation: none;
 }
 
 .dh svg {
@@ -116,5 +132,13 @@ export default {
 @keyframes dhTalk {
   0%, 100% { transform: scaleY(1); }
   50% { transform: scaleY(2.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dh,
+  .dh-eyes,
+  .dh.speaking .dh-mouth {
+    animation: none;
+  }
 }
 </style>

@@ -4,6 +4,62 @@
   padding: 0;
 }
 
+:root {
+  --color-ink: #17324f;
+  --color-text: #29415a;
+  --color-muted: #66788c;
+  --color-subtle: #8a99a9;
+  --color-border: #dfe7ef;
+  --color-border-strong: #cbd8e5;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f7fafd;
+  --color-primary: #245f9e;
+  --color-primary-strong: #174c82;
+  --color-primary-soft: #eaf2fb;
+  --color-success: #2f7d61;
+  --color-success-soft: #e8f5ef;
+  --color-warning: #9a651c;
+  --color-warning-soft: #fff4dd;
+  --color-danger: #b84e4e;
+  --color-danger-soft: #fff0f0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --shadow-card: 0 2px 8px rgba(27, 61, 95, 0.06);
+  --shadow-hover: 0 6px 16px rgba(27, 61, 95, 0.1);
+  --focus-ring: 0 0 0 3px rgba(36, 95, 158, 0.2);
+
+  /* 语义别名供全屏流程页复用，实际色值仍由上方单一色板控制。 */
+  --text-strong: var(--color-ink);
+  --text: var(--color-text);
+  --text-muted: var(--color-muted);
+  --border: var(--color-border);
+  --border-subtle: #edf2f7;
+  --border-strong: var(--color-border-strong);
+  --surface-subtle: var(--color-surface-soft);
+  --brand-50: var(--color-primary-soft);
+  --brand-600: var(--color-primary);
+  --brand-700: var(--color-primary-strong);
+  --success-700: var(--color-success);
+  --warning-50: var(--color-warning-soft);
+  --warning-500: var(--color-warning);
+  --warning-700: var(--color-warning);
+  --warning-800: var(--color-warning);
+  --danger-50: var(--color-danger-soft);
+  --danger-200: #efc9c9;
+  --danger-600: var(--color-danger);
+  --danger-700: var(--color-danger);
+  --danger-800: #913b3b;
+  --shadow-sm: var(--shadow-card);
+}
+
 html,
 body {
   height: 100%;
@@ -12,8 +68,30 @@ body {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: linear-gradient(180deg, #eef3fa 0%, #f4f6f9 240px);
+  background: #f4f7fa;
   min-height: 100%;
-  color: #2c3e50;
+  color: var(--color-text);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+input,
+select,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
